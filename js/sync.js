@@ -16,7 +16,7 @@ const providers = { drive };
 export const ROLES = {
   owner: { label: 'Propriétaire', write: true, common: true },
   parent: { label: 'Parent', write: true, common: true },
-  soignant: { label: 'Soignant', write: true, common: false },
+  soignant: { label: 'Soignant', write: true, common: false, ask: true },
   lecture: { label: 'Lecture seule', write: false, common: false },
 };
 export const can = (p, what) => !p?.share || !!ROLES[p.share.role]?.[what];
@@ -44,7 +44,7 @@ async function files(p) {
 // Publie MA section (mes saisies uniquement)
 async function publish(p, by) {
   const entries = await db.entriesOf(p.id);
-  const doc = { v: 1, patientId: p.id, member: { id: p.share.memberId, name: p.share.memberName, role: p.share.role }, updated: Date.now(), entries };
+  const doc = { v: 1, patientId: p.id, member: { id: p.share.memberId, name: p.share.memberName, role: p.share.role }, updated: Date.now(), entries, messages: p.msgs || [] };
   await prov(p).write(p.share.folder, myFile(p), doc, by[myFile(p)]?.id);
 }
 
@@ -57,7 +57,7 @@ async function pull(p, by, list) {
     const id = `${p.id}:${f.name}`; seen.add(id);
     if (known.get(id)?.modified >= f.modified) continue;
     const doc = await prov(p).read(f.id);
-    await db.put('remote', { id, patientId: p.id, memberId: doc.member?.id, name: doc.member?.name || 'Anonyme', role: doc.member?.role, entries: Array.isArray(doc.entries) ? doc.entries : [], modified: f.modified });
+    await db.put('remote', { id, patientId: p.id, memberId: doc.member?.id, name: doc.member?.name || 'Anonyme', role: doc.member?.role, entries: Array.isArray(doc.entries) ? doc.entries : [], messages: Array.isArray(doc.messages) ? doc.messages : [], modified: f.modified });
   }
   for (const [id] of known) if (!seen.has(id)) await db.del('remote', id); // membre retiré du dossier
   if (by['dossier.json'] && (p.share.commonAt || 0) < by['dossier.json'].modified) {
@@ -140,4 +140,44 @@ export async function commitCommon(p, patch) {
 export async function releaseLock(p) {
   const { by } = await files(p);
   if (by['lock.json']) await prov(p).write(p.share.folder, 'lock.json', { holder: null, name: '', until: 0 }, by['lock.json'].id);
+}
+
+// ----- Messagerie « tout va bien ? » (peu intrusive) -----
+// Chaque message est écrit dans la section de son auteur (comme les saisies) : pas de conflit.
+// Un soignant envoie une demande de nouvelles ; la personne répond en un tap. Garde-fous : une seule demande
+// en attente par patient, 4 h minimum entre deux demandes, pas la nuit (22 h – 7 h).
+export const ASK_GAP_MS = 4 * 3600000;
+export const REPLIES = { ok: '👍 Ça va', watch: '🤔 Pas top, à surveiller', help: '🆘 Besoin qu’on me rappelle' };
+
+export async function thread(p) {
+  const mine = (p.msgs || []).map(m => ({ ...m, by: p.share.memberName, mine: true }));
+  const others = (await db.remoteOf(p.id)).flatMap(r => (r.messages || []).map(m => ({ ...m, by: r.name, role: r.role })));
+  const all = [...mine, ...others].sort((a, b) => a.ts - b.ts);
+  const replied = new Set(all.filter(m => m.kind === 'reply').map(m => m.to));
+  return { all, pending: all.filter(m => m.kind === 'ask' && !replied.has(m.id)).pop() || null, replied };
+}
+
+export async function canAsk(p, now = Date.now()) {
+  if (!can(p, 'ask')) return { ok: false, why: 'Seuls les soignants peuvent demander des nouvelles.' };
+  const h = new Date(now).getHours();
+  if (h >= 22 || h < 7) return { ok: false, why: 'Pas de demande entre 22 h et 7 h (discrétion).' };
+  const { all, pending } = await thread(p);
+  if (pending) return { ok: false, why: `Une demande de ${pending.by} est déjà en attente de réponse.` };
+  const lastAsk = all.filter(m => m.kind === 'ask').pop();
+  if (lastAsk && now - lastAsk.ts < ASK_GAP_MS) return { ok: false, why: `Dernière demande il y a moins de 4 h (à ${new Date(lastAsk.ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}).` };
+  return { ok: true };
+}
+
+async function addMsg(p, msg) {
+  p.msgs = [...(p.msgs || []), { id: uid(), ts: Date.now(), ...msg }];
+  await db.put('patients', p);
+  try { await syncNow(p); return true; } catch { return false; } // hors-ligne : partira à la prochaine synchronisation
+}
+export async function ask(p, text) {
+  const c = await canAsk(p); if (!c.ok) throw new Error(c.why);
+  return addMsg(p, { kind: 'ask', text: text || 'Comment ça va ?' });
+}
+export async function reply(p, to, choice, text) {
+  if (!can(p, 'write')) throw new Error('Lecture seule : vous ne pouvez pas répondre.');
+  return addMsg(p, { kind: 'reply', to, choice, text: text || '' });
 }

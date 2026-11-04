@@ -51,6 +51,8 @@ const routes = [
   [/^scan$/, scanView],
   [/^share$/, shareView],
   [/^dossiers$/, dossiersView],
+  [/^suivi$/, suiviView],
+  [/^p\/([^/]+)\/messages$/, messagesView],
   [/^p\/([^/]+)\/sync$/, syncView],
   [/^backup$/, backupView],
   [/^receive$/, receiveView],
@@ -102,9 +104,9 @@ function setHeader(title, back) {
 }
 // Écran « parent » logique : le retour reste dans l'application (jamais hors de l'appli, même après un rechargement)
 function parentOf(path) {
-  if (/^p\/[^/]+\/(new|table|qr|sync)/.test(path)) return path.match(/^p\/[^/]+/)[0];
+  if (/^p\/[^/]+\/(new|table|qr|sync|messages)/.test(path)) return path.match(/^p\/[^/]+/)[0];
   if (/^r\/.+/.test(path)) return '';
-  if (path === 'receive') return '';
+  if (path === 'receive' || path === 'suivi') return '';
   if (path === 'compose') return 'templates';
   return '';
 }
@@ -176,6 +178,7 @@ async function patientView(pid) {
   setHeader(p.name, true);
   const [t, entries, tpls] = await Promise.all([getTemplate(p.templateId), db.allEntriesOf(pid), allTemplates()]);
   const canWrite = sync.can(p, 'write');
+  const pend = p.share && canWrite && !sync.can(p, 'ask') ? (await sync.thread(p)).pending : null;
   const fields = templateFields(t);
   const recent = entries.sort((a, b) => b.ts - a.ts).slice(0, 5);
   const sel = h('select', { 'aria-label': 'Fiche de suivi', onchange: async e => { p.templateId = e.target.value; await db.put('patients', p); toast('Fiche changée'); render(); } },
@@ -183,8 +186,9 @@ async function patientView(pid) {
   put(
     p.service ? h('p', { class: 'lead' }, p.service) : null,
     p.share ? h('a', { class: 'banner info', href: `#/p/${pid}/sync` }, h('strong', {}, `👥 Dossier partagé · ${sync.ROLES[p.share.role].label}`), h('span', {}, p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}. Touchez pour synchroniser / gérer.` : 'Touchez pour synchroniser.')) : null,
+    pend ? h('a', { class: 'banner', href: `#/p/${pid}/messages` }, h('strong', {}, `💬 ${pend.by} demande de vos nouvelles`), h('span', {}, 'Touchez pour répondre en un tap.')) : null,
     canWrite ? link(`#/p/${pid}/new`, '＋ Nouvelle saisie', 'btn big') : h('p', { class: 'hint' }, 'Lecture seule : vous ne pouvez pas ajouter de saisie.'),
-    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary')),
+    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary'), p.share ? link(`#/p/${pid}/messages`, '💬 Messages', 'btn secondary') : null),
     h('label', {}, 'Fiche de suivi', sel),
     pdfBox(p, t, fields, entries),
     h('h2', {}, 'Dernières saisies'),
@@ -466,7 +470,8 @@ async function medicalHome() {
     h('small', {}, `${r.rows.length} saisie(s) · reçu le ${fmtDateLong(r.updated)}`))));
   if (!recs.length) list.append(h('p', { class: 'empty' }, 'Aucun bilan reçu. Scannez le QR code affiché sur le téléphone du patient.'));
   put(h('p', { class: 'lead' }, 'Recevez les bilans transmis par les patients (QR code), sans réseau. Les données restent sur cet appareil.'),
-    link('#/receive', '📥 Recevoir un bilan (scanner)', 'btn big'),
+    link('#/suivi', '📊 Tableau de suivi des patients', 'btn big'),
+    link('#/receive', '📥 Recevoir un bilan (scanner)', 'btn secondary'),
     h('h2', {}, 'Bilans reçus'), list,
     dossiersLink(), backupLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
@@ -603,6 +608,76 @@ async function backupView() {
       h('p', { class: 'hint' }, 'Choisissez un fichier de sauvegarde (depuis Drive, Fichiers, une clé USB…).'),
       input, h('label', { class: 'btn secondary', for: 'bk-file' }, '📂 Choisir un fichier de sauvegarde'),
       info, rpassWrap, readBtn, h('label', {}, 'Mode', modeSel), goBtn));
+}
+
+// ---------- Tableau de suivi multi-patients (corps médical) ----------
+const ago = ms => { const m = Math.round(ms / 60000); return m < 1 ? 'à l’instant' : m < 60 ? `il y a ${m} min` : m < 2880 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`; };
+// Retard de saisie : vert = à jour, orange = au-delà du délai attendu, rouge = plus de 2× le délai
+function lateness(last, hours, now = Date.now()) {
+  if (!last) return { lvl: 3, dot: '⚪', txt: 'Aucune saisie' };
+  const age = now - last, lim = hours * 3600000;
+  const lvl = age <= lim ? 0 : age <= 2 * lim ? 1 : 2;
+  return { lvl, dot: ['🟢', '🟠', '🔴'][lvl], txt: `Dernière saisie ${ago(age)}` };
+}
+
+async function suiviView() {
+  setHeader('Tableau de suivi', true);
+  const shared = (await db.all('patients')).filter(p => p.share);
+  const received = await db.all('received');
+  const rows = [];
+  for (const p of shared) {
+    const es = await db.allEntriesOf(p.id), last = Math.max(0, ...es.map(e => e.ts));
+    const th = await sync.thread(p), hrs = p.alertHours || 6;
+    const lastReply = th.all.filter(m => m.kind === 'reply').pop();
+    rows.push({ key: p.id, name: p.name, href: `#/p/${p.id}`, hours: hrs, late: lateness(last, hrs), pending: th.pending, lastReply, p });
+  }
+  for (const r of received) {
+    const last = Math.max(0, ...rx.receivedEntries(r).map(e => e.ts));
+    rows.push({ key: 'r' + r.id, name: r.name, href: `#/r/${encodeURIComponent(r.id)}`, hours: 24, late: lateness(last, 24), bilan: true });
+  }
+  rows.sort((a, b) => (a.late.lvl === 3 ? -1 : b.late.lvl === 3 ? 1 : b.late.lvl - a.late.lvl) || a.name.localeCompare(b.name));
+  const syncAll = h('button', { class: 'btn big', type: 'button', disabled: !shared.length, onclick: () => busy(syncAll, async () => {
+    let fail = 0; for (const p of shared) { try { await sync.syncNow(p); } catch (e) { fail++; console.error(e); } }
+    toast(fail ? `${fail} dossier(s) non synchronisé(s)` : 'Tout est synchronisé ✓'); render();
+  }) }, '🔄 Tout synchroniser');
+  const card = r => h('div', { class: 'card status l' + r.late.lvl },
+    h('a', { href: r.href, class: 'sname' }, h('strong', {}, `${r.late.dot} ${r.name}`), r.bilan ? h('small', {}, ' · bilan reçu') : null),
+    h('span', {}, r.late.txt + (r.bilan ? '' : ` · attendu toutes les ${r.hours} h`)),
+    r.pending ? h('small', {}, `💬 Demande de ${r.pending.by} ${ago(Date.now() - r.pending.ts)} : en attente de réponse`) : null,
+    r.lastReply && !r.pending ? h('small', { class: r.lastReply.choice === 'help' ? 'alertmsg' : '' }, `${sync.REPLIES[r.lastReply.choice] || 'Réponse'} · ${r.lastReply.by} ${ago(Date.now() - r.lastReply.ts)}`) : null,
+    r.p ? h('div', { class: 'row' },
+      h('label', { class: 'inline' }, 'Délai (h)', h('select', { 'aria-label': 'Délai de saisie attendu en heures', onchange: async e => { r.p.alertHours = +e.target.value; await db.put('patients', r.p); render(); } },
+        [1, 2, 4, 6, 8, 12, 24, 48].map(v => h('option', { value: v, selected: v === r.hours }, v + ' h')))),
+      sync.can(r.p, 'ask') ? link(`#/p/${r.key}/messages`, '💬 Nouvelles', 'btn secondary small') : null) : null);
+  put(h('p', { class: 'lead' }, 'Tous vos patients en un coup d’œil, du plus en retard au plus à jour. 🟢 à jour · 🟠 retard · 🔴 grand retard (plus de 2× le délai attendu).'),
+    syncAll,
+    h('div', { class: 'cards' }, rows.length ? rows.map(card) : h('p', { class: 'empty' }, 'Aucun patient suivi. Rejoignez un dossier partagé ou scannez un bilan.')));
+}
+
+// ---------- Messagerie « tout va bien ? » ----------
+async function messagesView(pid) {
+  const p = await db.get('patients', pid);
+  if (!p?.share) { location.hash = `#/p/${pid}`; return; }
+  setHeader(p.name + ' · Messages', true);
+  const th = await sync.thread(p);
+  const canAsk = await sync.canAsk(p);
+  const note = h('textarea', { rows: 2, placeholder: 'Message (facultatif)', 'aria-label': 'Message', class: 'note' });
+  const done = (ok) => { toast(ok ? 'Envoyé ✓' : 'Enregistré, sera envoyé à la prochaine synchronisation'); render(); };
+  const msgs = h('ul', { class: 'recent' }, th.all.length ? th.all.map(m => h('li', {}, h('div', { class: 'ro' + (m.choice === 'help' ? ' alertmsg' : '') },
+    h('b', {}, `${m.mine ? 'Moi' : m.by}`), ` · ${fmtDateLong(m.ts)}`, h('br'),
+    m.kind === 'ask' ? `💬 ${m.text}` : `${sync.REPLIES[m.choice] || ''}${m.text ? ' — ' + m.text : ''}`))) : h('li', { class: 'empty' }, 'Aucun message.'));
+  const blocks = [];
+  if (th.pending && sync.can(p, 'write') && !th.pending.mine) {
+    const b = c => { const btn = h('button', { class: 'btn big' + (c === 'ok' ? '' : ' secondary'), type: 'button', onclick: () => busy(btn, async () => done(await sync.reply(p, th.pending.id, c, note.value.trim()))) }, sync.REPLIES[c]); return btn; };
+    blocks.push(h('h2', {}, `${th.pending.by} demande : « ${th.pending.text} »`), note, ...Object.keys(sync.REPLIES).map(b));
+  } else if (th.pending) blocks.push(h('p', { class: 'hint' }, 'Demande envoyée : en attente de réponse.'));
+  if (sync.can(p, 'ask') && !th.pending) {
+    const askBtn = h('button', { class: 'btn big', type: 'button', disabled: !canAsk.ok, onclick: () => busy(askBtn, async () => done(await sync.ask(p, note.value.trim()))) }, '💬 Demander des nouvelles');
+    blocks.push(note, askBtn, canAsk.ok ? h('p', { class: 'hint' }, 'Un message court, sans notification : la personne le voit à l’ouverture de l’application.') : h('p', { class: 'hint' }, canAsk.why));
+  }
+  put(h('p', { class: 'hint' }, '⚠ Ce n’est pas un canal d’urgence. En cas d’urgence : appelez le 15 ou le 112.'),
+    ...blocks, h('h2', {}, 'Échanges'), msgs,
+    h('button', { class: 'btn secondary', type: 'button', onclick: e => busy(e.currentTarget, async () => { await sync.syncNow(p); render(); }) }, '🔄 Actualiser'));
 }
 
 // ---------- Dossiers partagés (Google Drive) ----------

@@ -60,6 +60,14 @@ Aucun envoi automatique vers un cloud tiers (RGPD) : c'est l'utilisateur qui cho
 - **Évolution PostgreSQL** : `js/sync.js` ne parle qu'à un fournisseur `{list, read, write}` (`js/drive.js`) ; une API
   PostgreSQL implémente la même interface sans toucher au reste.
 
+### Tableau de suivi et messagerie (corps médical)
+
+- **Tableau de suivi** (`#/suivi`) : tous les patients (dossiers partagés + bilans reçus) triés du plus en retard au plus à jour.
+  Voyant selon le **retard de saisie** : 🟢 dans le délai attendu, 🟠 au-delà, 🔴 au-delà de 2× ; délai réglable par patient (1 à 48 h, 6 h par défaut).
+- **« Tout va bien ? »** : tout soignant du dossier peut demander des nouvelles ; la personne répond en un tap
+  (👍 / 🤔 / 🆘). Garde-fous : une demande en attente à la fois, 4 h minimum entre deux demandes, rien entre 22 h et 7 h.
+  Pas de notification push (sans serveur) : le message s'affiche à l'ouverture de l'app. Pas un canal d'urgence (15 / 112).
+
 ## Format du QR code
 
 Chaque code est un JSON autonome lisible par n'importe quel lecteur :
