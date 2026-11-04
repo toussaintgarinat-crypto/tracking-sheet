@@ -34,6 +34,15 @@ Sélecteur en haut de l'accueil (mémorisé sur l'appareil).
   reçus sont conservés sur l'appareil du soignant (liste, tableau, PDF, suppression). Un bilan sans nom n'est
   jamais fusionné avec un autre. Lecteur QR : `vendor/jsQR.js`, hors-ligne.
 
+## Sauvegarde et restauration
+
+Écran **Sauvegarde & restauration** : crée un fichier `.json` (patients, saisies, fiches perso, bilans reçus),
+chiffrable par mot de passe (AES-GCM 256, clé PBKDF2-SHA256 250 000 itérations ; mot de passe non récupérable).
+Le fichier est remis à la feuille de partage du système (Drive, Fichiers/iCloud, clé USB, e-mail…) ou téléchargé.
+La restauration relit ce fichier, en mode **fusion** (par défaut, sans doublons) ou **remplacement**.
+Une bannière rappelle de sauvegarder quand des données ont changé depuis la dernière sauvegarde.
+Aucun envoi automatique vers un cloud tiers (RGPD) : c'est l'utilisateur qui choisit où ranger le fichier.
+
 ## Format du QR code
 
 Chaque code est un JSON autonome lisible par n'importe quel lecteur :

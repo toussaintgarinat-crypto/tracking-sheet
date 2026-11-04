@@ -6,6 +6,7 @@ import { filterPeriod, buildTable, qrPayloads, printSheet, exportPdf } from './e
 import { qrSvg } from './qr.js';
 import * as scan from './scan.js';
 import * as rx from './receive.js';
+import * as bk from './backup.js';
 
 const app = document.getElementById('app');
 const titleEl = document.getElementById('title');
@@ -47,6 +48,7 @@ const routes = [
   [/^compose$/, composeView],
   [/^scan$/, scanView],
   [/^share$/, shareView],
+  [/^backup$/, backupView],
   [/^receive$/, receiveView],
   [/^r\/(.+)$/, receivedView],
 ];
@@ -54,6 +56,15 @@ const routes = [
 let stopCamera = null;
 const getMode = () => { try { return localStorage.getItem('mode') === 'medical' ? 'medical' : 'patient'; } catch { return 'patient'; } };
 const setMode = m => { try { localStorage.setItem('mode', m); } catch { /* ignoré */ } render(); };
+
+// Rappel : des données ont changé depuis la dernière sauvegarde
+function backupBanner() {
+  const { lastBackup, lastChange } = bk.backupState();
+  if (!lastChange || lastChange <= lastBackup) return null;
+  const when = lastBackup ? `dernière sauvegarde le ${fmtDateLong(lastBackup)}` : 'aucune sauvegarde pour l’instant';
+  return h('a', { class: 'banner', href: '#/backup' }, h('strong', {}, '⚠ Données non sauvegardées'), h('span', {}, `${when}. Touchez pour sauvegarder.`));
+}
+const backupLink = () => link('#/backup', '💾 Sauvegarde & restauration', 'btn secondary');
 
 function modeSwitch() {
   const cur = getMode();
@@ -90,7 +101,7 @@ const confirmDo = (msg, fn) => { if (confirm(msg)) fn(); };
 
 // ---------- Accueil / patients ----------
 async function homeView() {
-  put(modeSwitch());
+  put(modeSwitch(), backupBanner());
   if (getMode() === 'medical') return medicalHome();
   setHeader('Suivi hospitalier · Patient', false);
   const patients = (await db.all('patients')).sort((a, b) => (b.updated || 0) - (a.updated || 0));
@@ -110,6 +121,7 @@ async function homeView() {
   put(list,
     link('#/new-patient', '＋ Nouveau patient', 'btn big'),
     h('div', { class: 'row' }, link('#/scan', '📷 Scanner une fiche papier', 'btn secondary'), link('#/templates', '📋 Modèles de fiches', 'btn secondary')),
+    backupLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & purge'),
       h('p', {}, 'Aucune donnée n’est envoyée à un serveur. Tout est stocké dans le navigateur de cet appareil.'),
@@ -438,6 +450,7 @@ async function medicalHome() {
   put(h('p', { class: 'lead' }, 'Recevez les bilans transmis par les patients (QR code), sans réseau. Les données restent sur cet appareil.'),
     link('#/receive', '📥 Recevoir un bilan (scanner)', 'btn big'),
     h('h2', {}, 'Bilans reçus'), list,
+    backupLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     recs.length ? h('details', { class: 'danger-zone' }, h('summary', {}, 'Purge'),
       h('button', { class: 'btn danger', onclick: () => confirmDo('Supprimer DÉFINITIVEMENT tous les bilans reçus sur cet appareil ?', async () => { await db.purgeReceived(); toast('Bilans supprimés'); render(); }) }, 'Effacer tous les bilans reçus')) : null);
@@ -518,6 +531,60 @@ async function receivedView(rawId) {
       link('#/receive', '📥 Recevoir d’autres codes', 'btn secondary')),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Supprimer ce bilan'),
       h('button', { class: 'btn danger', onclick: () => confirmDo(`Supprimer définitivement le bilan de ${rec.name} de cet appareil ?`, async () => { await db.del('received', id); toast('Bilan supprimé'); location.hash = '#/'; }) }, 'Supprimer ce bilan')));
+}
+
+// ---------- Sauvegarde / restauration ----------
+async function backupView() {
+  setHeader('Sauvegarde & restauration', true);
+  const { lastBackup } = bk.backupState();
+  const pass = h('input', { type: 'password', placeholder: 'Mot de passe (facultatif, recommandé)', autocomplete: 'new-password', 'aria-label': 'Mot de passe de chiffrement' });
+  const saveBtn = h('button', { class: 'btn big', onclick: async () => {
+    saveBtn.disabled = true;
+    try {
+      const { blob, name, counts } = await bk.createBackup(pass.value);
+      const r = await bk.saveBlob(blob, name);
+      if (r !== 'cancelled') { bk.markBackedUp(); toast(r === 'downloaded' ? `Sauvegarde téléchargée (${counts.patients} patient(s), ${counts.entries} saisie(s))` : 'Sauvegarde enregistrée ✓'); render(); }
+    } catch (e) { toast('Échec de la sauvegarde : ' + e.message); }
+    saveBtn.disabled = false;
+  } }, '💾 Créer une sauvegarde');
+
+  // restauration
+  const rpass = h('input', { type: 'password', placeholder: 'Mot de passe de la sauvegarde', autocomplete: 'off', 'aria-label': 'Mot de passe' });
+  const rpassWrap = h('label', { hidden: true }, 'Cette sauvegarde est chiffrée', rpass);
+  const info = h('p', { class: 'lead' });
+  const modeSel = h('select', { 'aria-label': 'Mode de restauration' },
+    h('option', { value: 'merge' }, 'Fusionner avec les données de cet appareil (recommandé)'),
+    h('option', { value: 'replace' }, 'Remplacer toutes les données de cet appareil'));
+  const goBtn = h('button', { class: 'btn', disabled: true }, '♻ Restaurer');
+  let file = null, loaded = null;
+  const analyse = async () => {
+    loaded = null; goBtn.disabled = true;
+    if (!file) return;
+    try {
+      const r = await bk.readBackup(file, rpass.value);
+      if (r.encrypted) { rpassWrap.hidden = false; info.textContent = 'Fichier chiffré : saisissez le mot de passe puis touchez « Lire le fichier ».'; readBtn.hidden = false; return; }
+      rpassWrap.hidden = true; readBtn.hidden = true; loaded = r;
+      info.textContent = `Sauvegarde du ${fmtDateLong(r.exportedAt)} : ${r.counts.patients} patient(s), ${r.counts.entries} saisie(s), ${r.counts.templates} fiche(s) perso, ${r.counts.received} bilan(s) reçu(s).`;
+      goBtn.disabled = false;
+    } catch (e) { info.textContent = e.message; info.classList.add('error'); return; }
+    info.classList.remove('error');
+  };
+  const readBtn = h('button', { class: 'btn secondary', hidden: true, onclick: analyse }, 'Lire le fichier');
+  const input = h('input', { type: 'file', accept: '.json,application/json', id: 'bk-file', hidden: true, onchange: e => { file = e.target.files[0] || null; rpass.value = ''; info.classList.remove('error'); analyse(); } });
+  goBtn.addEventListener('click', async () => {
+    if (!loaded) return;
+    const replace = modeSel.value === 'replace';
+    if (replace && !confirm('Remplacer TOUTES les données de cet appareil par celles de la sauvegarde ? Les données actuelles seront perdues.')) return;
+    try { await bk.restore(loaded.data, replace); toast('Données restaurées ✓'); location.hash = '#/'; } catch (e) { toast('Échec de la restauration : ' + e.message); }
+  });
+  put(h('p', { class: 'lead' }, lastBackup ? `Dernière sauvegarde : ${fmtDateLong(lastBackup)}.` : 'Aucune sauvegarde faite sur cet appareil.'),
+    h('section', { class: 'group' }, h('h3', {}, '1. Sauvegarder'),
+      h('p', { class: 'hint' }, 'Crée un fichier avec tous vos patients, saisies, fiches et bilans reçus. Choisissez ensuite où le ranger : Google Drive, Fichiers / iCloud, clé USB, e-mail… Le fichier contient des données de santé : chiffrez-le avec un mot de passe (impossible à récupérer s’il est oublié).'),
+      h('label', {}, 'Chiffrement', pass), saveBtn),
+    h('section', { class: 'group' }, h('h3', {}, '2. Restaurer'),
+      h('p', { class: 'hint' }, 'Choisissez un fichier de sauvegarde (depuis Drive, Fichiers, une clé USB…).'),
+      input, h('label', { class: 'btn secondary', for: 'bk-file' }, '📂 Choisir un fichier de sauvegarde'),
+      info, rpassWrap, readBtn, h('label', {}, 'Mode', modeSel), goBtn));
 }
 
 // ---------- Partage de l'application par QR code ----------
