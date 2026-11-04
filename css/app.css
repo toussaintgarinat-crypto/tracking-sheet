@@ -128,3 +128,6 @@ canvas.quad, canvas.preview { width: 100%; height: auto; touch-action: none; bor
 
 .grid th.edit, .grid td.edit { position: sticky; right: 0; background: var(--bg); padding: .2rem; }
 .shifts { margin-top: -.25rem; }
+
+.pdfbox { display: flex; flex-direction: column; gap: .75rem; }
+.qr { width: min(100%, 560px); }

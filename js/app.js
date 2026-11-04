@@ -2,7 +2,7 @@ import { h, clear, toast, uid, toLocalInput, fmtDate, fmtDateLong } from './dom.
 import { db, requestPersistence } from './db.js';
 import { MODULES, BUILTIN_TEMPLATES, templateFields, resolveModules, fmtValue } from './modules.js';
 import { buildForm, fieldsEditor } from './engine.js';
-import { filterPeriod, buildTable, qrPayloads, printSheet } from './export.js';
+import { filterPeriod, buildTable, qrPayloads, printSheet, exportPdf } from './export.js';
 import { qrSvg } from './qr.js';
 import * as scan from './scan.js';
 
@@ -137,12 +137,24 @@ async function patientView(pid) {
     link(`#/p/${pid}/new`, '＋ Nouvelle saisie', 'btn big'),
     h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ QR code', 'btn secondary')),
     h('label', {}, 'Fiche de suivi', sel),
+    pdfBox(p, t, fields, entries),
     h('h2', {}, 'Dernières saisies'),
     recent.length ? h('ul', { class: 'recent' }, recent.map(e => h('li', {}, h('a', { href: `#/p/${pid}/new/${e.id}` },
       h('b', {}, fmtDate(e.ts)), ' ✎ ',
       fields.filter(f => e.values[f.key] != null).slice(0, 4).map(f => `${f.short || f.label} ${fmtValue(f, e.values[f.key])}`).join(' · '))))) : h('p', { class: 'empty' }, 'Aucune saisie.'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Sortie d’hospitalisation / purge'),
       h('button', { class: 'btn danger', onclick: () => confirmDo(`Supprimer définitivement ${p.name} et tout son historique (${entries.length} saisie(s)) ?`, async () => { await db.purgePatient(pid); toast('Patient supprimé'); location.hash = '#/'; }) }, 'Supprimer ce patient et son historique')));
+}
+
+// Export PDF : choix de la période + bouton (utilisé sur la fiche patient)
+function pdfBox(p, t, fields, entries) {
+  let hours = 24;
+  const btn = h('button', { class: 'btn', type: 'button', onclick: async () => {
+    const list = filterPeriod(entries, hours);
+    const res = await exportPdf(p, t, fields, list, PERIODS.find(x => x.h === hours).label);
+    if (res === 'downloaded') toast('PDF enregistré dans les téléchargements');
+  } }, '📄 Exporter en PDF');
+  return h('div', { class: 'pdfbox' }, h('h2', {}, 'PDF'), periodPicker(hours, v => { hours = v; }), btn);
 }
 
 // ---------- Saisie ----------
@@ -195,7 +207,8 @@ async function tableView(pid) {
     h('p', { class: 'hint' }, 'Touchez ✎ (ou une ligne) pour corriger une saisie, y compris son heure.'),
     holder,
     h('div', { class: 'row' },
-      h('button', { class: 'btn', onclick: () => printSheet(p, t, st.hide ? fields.filter(f => filterPeriod(all, st.hours).some(e => e.values[f.key] != null)) : fields, filterPeriod(all, st.hours), PERIODS.find(x => x.h === st.hours).label) }, '🖨 Imprimer / PDF'),
+      h('button', { class: 'btn', onclick: async () => { const r = await exportPdf(p, t, fields, filterPeriod(all, st.hours), PERIODS.find(x => x.h === st.hours).label); if (r === 'downloaded') toast('PDF enregistré'); } }, '📄 Exporter en PDF'),
+      h('button', { class: 'btn secondary', onclick: () => printSheet(p, t, st.hide ? fields.filter(f => filterPeriod(all, st.hours).some(e => e.values[f.key] != null)) : fields, filterPeriod(all, st.hours), PERIODS.find(x => x.h === st.hours).label) }, '🖨 Imprimer'),
       link(`#/p/${pid}/qr`, '▦ QR code', 'btn secondary')));
 }
 
@@ -236,6 +249,11 @@ async function qrView(pid) {
     h('label', { class: 'check' }, nameCb, ' Inclure le nom du patient'),
     box, info, nav,
     h('p', { class: 'hint' }, 'Le soignant scanne le code avec n’importe quel lecteur : le bilan s’affiche en texte, sans connexion. Si plusieurs codes, les scanner dans l’ordre.'),
+    h('button', { class: 'btn secondary', onclick: async () => {
+      const txt = st.payloads.join('\n');
+      try { if (navigator.share) { await navigator.share({ text: txt, title: 'Bilan ' + p.name }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+      try { await navigator.clipboard.writeText(txt); toast('Bilan copié'); } catch { toast('Copie impossible'); }
+    } }, '↗ Partager le bilan en texte'),
     h('details', {}, h('summary', {}, 'Contenu du code'), raw));
   draw();
 }
@@ -307,16 +325,23 @@ async function scanView() {
 
   const step1 = () => {
     clear(app);
-    const input = h('input', { type: 'file', accept: 'image/*', capture: 'environment', id: 'photo', hidden: true, onchange: async e => {
+    // deux entrées : appareil photo (capture) ou photo existante (galerie / fichiers) – sans `capture`, iOS/Android proposent la photothèque
+    const onFile = async e => {
       const file = e.target.files[0]; if (!file) return;
       busy('Chargement de l’image…');
-      S.src = await scan.loadGray(file);
+      try {
+        S.src = await scan.loadGray(file);
+      } catch { clear(app); toast('Image illisible : essayez une photo JPEG ou PNG'); return step1(); }
       S.srcCanvas = scan.grayToCanvas(scan.normalize(S.src.gray, S.src.w, S.src.h), S.src.w, S.src.h);
       S.quad = scan.guessQuad(S.src.gray, S.src.w, S.src.h);
       step2();
-    } });
-    put(h('p', { class: 'lead' }, 'Photographiez la fiche papier vierge du service, bien à plat et éclairée. L’application en recrée une version numérique.'),
-      input, h('label', { class: 'btn big', for: 'photo' }, '📷 Prendre / choisir une photo'),
+    };
+    const camera = h('input', { type: 'file', accept: 'image/*', capture: 'environment', id: 'photo-camera', hidden: true, onchange: onFile });
+    const gallery = h('input', { type: 'file', accept: 'image/*', id: 'photo', hidden: true, onchange: onFile });
+    put(h('p', { class: 'lead' }, 'Prenez la fiche papier vierge du service en photo, ou importez une photo déjà enregistrée sur le téléphone. Cadrez bien à plat et éclairé : l’application en recrée une version numérique.'),
+      camera, gallery,
+      h('label', { class: 'btn big', for: 'photo-camera' }, '📷 Prendre une photo'),
+      h('label', { class: 'btn big secondary', for: 'photo' }, '🖼 Importer une photo existante'),
       ocrState,
       h('button', { class: 'btn secondary', onclick: () => { S.fields = []; step4(); } }, 'Saisir les intitulés à la main'));
   };

@@ -1,6 +1,7 @@
 // Restitution : tableau chronologique, charges utiles QR (JSON compact), impression/PDF.
 import { h, fmtDate } from './dom.js';
 import { fmtValue } from './modules.js';
+import { buildPdf, savePdf } from './pdf.js';
 
 export function filterPeriod(entries, hours) {
   const sorted = [...entries].sort((a, b) => a.ts - b.ts);
@@ -37,7 +38,7 @@ export function buildTable(fields, entries, { hideEmpty = false, onRow } = {}) {
 const utf8Len = s => new TextEncoder().encode(s).length;
 
 // Découpe le bilan en un ou plusieurs JSON autonomes (chacun tient dans un QR lisible)
-export function qrPayloads(patient, template, fields, entries, { includeName = true, maxBytes = 900 } = {}) {
+export function qrPayloads(patient, template, fields, entries, { includeName = true, maxBytes = 600 } = {}) {
   const keyOf = new Map();
   const used = new Set();
   fields.forEach(f => {
@@ -65,10 +66,9 @@ export function qrPayloads(patient, template, fields, entries, { includeName = t
   const head = (chunk, n, total) => ({
     v: 1,
     ...(includeName ? { p: patient.name } : {}),
-    f: template.name,
-    g: new Date().toISOString().slice(0, 16).replace('T', ' '),
+    ...(n === 1 ? { f: template.name, g: new Date().toISOString().slice(0, 16).replace('T', ' ') } : {}),
     ...(total > 1 ? { n: `${n}/${total}` } : {}),
-    k: legendFor(chunk),
+    ...(n === 1 ? { k: legendFor(chunk) } : {}),
     r: chunk,
   });
   // découpage glouton
@@ -76,7 +76,7 @@ export function qrPayloads(patient, template, fields, entries, { includeName = t
   let cur = [];
   for (const r of rows) {
     const trial = [...cur, r];
-    if (cur.length && utf8Len(JSON.stringify(head(trial, 99, 99))) > maxBytes) { chunks.push(cur); cur = [r]; }
+    if (cur.length && utf8Len(JSON.stringify(head(trial, chunks.length + 1 === 1 ? 1 : 2, 99))) > maxBytes) { chunks.push(cur); cur = [r]; }
     else cur = trial;
   }
   if (cur.length || !chunks.length) chunks.push(cur);
@@ -95,4 +95,17 @@ export function printSheet(patient, template, fields, entries, periodLabel) {
   const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
   setTimeout(() => window.print(), 50);
+}
+
+// Vrai fichier PDF (feuille de partage sur mobile, téléchargement sinon)
+export async function exportPdf(patient, template, fields, entries, periodLabel) {
+  const cols = fields.map(f => ({ label: f.label + (f.unit ? ` (${f.unit})` : '') }));
+  const rows = entries.map(e => [fmtDate(e.ts), ...fields.map(f => fmtValue(f, e.values[f.key]))]);
+  const blob = buildPdf({
+    title: `Suivi - ${patient.name}`,
+    subtitle: `${template.name}${patient.service ? ' - ' + patient.service : ''} - ${periodLabel} - ${entries.length} saisie(s)`,
+    columns: cols, rows,
+  });
+  const safe = patient.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '') || 'patient';
+  return savePdf(blob, `suivi-${safe}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
