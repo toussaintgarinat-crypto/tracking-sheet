@@ -1,16 +1,16 @@
 // Guide d'utilisation intégré (fonctionne hors-ligne). Texte seul : le rendu est dans app.js.
 // quick = guide express affiché ouvert en tête de page ; sections = rubriques repliables.
 export const QUICK = {
-  title: 'Partage sans réseau en 5 étapes',
-  intro: 'Pour deux appareils au même endroit, sans Internet ni Drive.',
+  title: 'Suivi sans réseau : 2 scans, un seul code',
+  intro: 'Le patient choisit un code. Le soignant le saisit une seule fois, puis il suffit de se scanner.',
   steps: [
-    'Personne A : Menu → Dossiers partagés → « 4. Sans réseau ». Choisir le patient, saisir son nom et une phrase secrète (recommandé), puis « Créer un partage par QR ».',
-    'Personne A : sur l’écran qui s’ouvre, onglet « Invitation » : le QR code s’affiche. Le montrer à l’autre personne (ne pas le photographier).',
-    'Personne B : Menu → Dossiers partagés → « Scanner une invitation », cadrer le code, saisir son nom, choisir son rôle (parent, soignant, lecture seule) et la phrase secrète donnée par A (de vive voix, pas par Drive).',
-    'Chacun : sur la fiche du patient → « ▦ Échanger par QR » → onglet « Ma section ». Montrer ses codes à l’autre, qui les scanne (« Recevoir par QR »). Plusieurs codes : « Défilement automatique », ordre libre.',
-    'À refaire à chaque rencontre : chacun reçoit la section de l’autre en lecture seule, avec le nom de l’auteur. Les saisies s’ajoutent, rien n’est écrasé.',
+    'Patient : Menu → Dossiers partagés → « 4. Sans réseau ». Choisir le patient, saisir son nom et un code (la phrase secrète), puis « Créer un partage par QR ». Donner le code au soignant de vive voix.',
+    'Patient : sur « Échanger par QR », onglet « Ma section » : le QR code s’affiche, avec les dernières saisies. Il contient aussi le nom du patient et sa fiche.',
+    'Soignant (1er scan) : « Recevoir par QR », cadrer le code. À la première fois seulement : indiquer son nom, son rôle et le code du patient. Le patient est ajouté avec ses saisies.',
+    'Soignant (2e scan, sens inverse) : sur la fiche du patient → « ▦ Échanger par QR » → « Ma section ». Le patient le scanne : il reçoit les saisies et la demande « tout va bien ? » du soignant.',
+    'Ensuite, à chaque rencontre : rien à retaper. Le patient ouvre son QR, le soignant le scanne (et inversement). Les saisies s’ajoutent, sans doublon.',
   ],
-  tip: 'Sans caméra : « Partager en texte » envoie les codes par message, et « Coller le texte » les importe.',
+  tip: 'Le QR est recalculé à chaque ouverture : il faut l’afficher à l’écran, un QR imprimé ne se met pas à jour. Sans caméra : « Partager en texte » envoie les codes par message, « Coller le texte » les importe.',
 };
 
 export const SECTIONS = [

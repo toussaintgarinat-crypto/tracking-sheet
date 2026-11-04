@@ -802,20 +802,25 @@ async function scanSyncView() {
     if (busyNow || finished) return; busyNow = true;
     try {
       const r = await qs.open(rcv, patients);
-      finished = true; if (stopCamera) { stopCamera(); stopCamera = null; } video.hidden = true;
+      if (r.kind === 'needcode' || r.kind === 'new' || r.kind === 'inv') { finished = true; if (stopCamera) { stopCamera(); stopCamera = null; } video.hidden = true; }
       if (navigator.vibrate) navigator.vibrate(80);
-      if (r.kind === 'sec') { toast(r.stale ? 'Déjà à jour' : `Section de ${r.name} reçue ✓ (${r.added} nouvelle(s) saisie(s))`); location.hash = `#/p/${r.patient.id}`; return; }
-      // invitation : choisir son nom et son rôle
+      if (r.kind === 'sec') { finished = true; if (stopCamera) { stopCamera(); stopCamera = null; } toast(r.stale ? 'Déjà à jour' : `Section de ${r.name} reçue ✓ (${r.added} nouvelle(s) saisie(s))`); location.hash = `#/p/${r.patient.id}`; return; }
+      // patient ou invitation découverts par scan : nom, rôle et (si chiffré) phrase secrète, demandés UNE seule fois
       const name = h('input', { type: 'text', placeholder: 'Votre nom (ex : Dr Martin)', 'aria-label': 'Votre nom', value: sync.me().name });
-      const role = h('select', { 'aria-label': 'Mon rôle' }, ['parent', 'soignant', 'lecture'].map(x => h('option', { value: x }, sync.ROLES[x].label)));
-      const pass = r.data.enc ? h('input', { type: 'password', placeholder: 'Phrase secrète du dossier', 'aria-label': 'Phrase secrète', autocomplete: 'off' }) : null;
+      const role = h('select', { 'aria-label': 'Mon rôle' }, ['soignant', 'parent', 'lecture'].map(x => h('option', { value: x }, sync.ROLES[x].label)));
+      const needPass = r.kind === 'needcode' || (r.kind === 'inv' && r.data.enc);
+      const pass = needPass ? h('input', { type: 'password', placeholder: 'Code choisi par le patient', 'aria-label': 'Code du patient', autocomplete: 'off' }) : null;
+      const label = r.kind === 'inv' ? `Invitation : ${r.data.patient.name}` : r.kind === 'new' ? `Nouveau patient : ${r.obj.pt.name}` : 'Nouveau patient (dossier protégé)';
       const ok = h('button', { class: 'btn big', type: 'button', onclick: () => busy(ok, async () => {
         if (!name.value.trim()) { name.focus(); throw new Error('Indiquez votre nom.'); }
-        const p = await qs.acceptInvite(r.data, name.value.trim(), role.value, pass?.value || '');
-        toast('Dossier rejoint ✓'); location.hash = `#/p/${p.id}/qrsync`;
-      }) }, 'Rejoindre ce dossier');
+        if (needPass && !pass.value) { pass.focus(); throw new Error('Saisissez le code du patient.'); }
+        if (r.kind === 'inv') { const p = await qs.acceptInvite(r.data, name.value.trim(), role.value, pass?.value || ''); toast('Dossier rejoint ✓'); location.hash = `#/p/${p.id}/qrsync`; return; }
+        const src = r.kind === 'new' ? { obj: r.obj, pass: '', salt: null } : await qs.openWithCode(r.packed, pass.value);
+        const res = await qs.acceptNew(src.obj, name.value.trim(), role.value, src.pass, src.salt);
+        toast(`Patient ajouté ✓ (${res.added} saisie(s))`); location.hash = `#/p/${res.patient.id}/qrsync`;
+      }) }, r.kind === 'inv' ? 'Rejoindre ce dossier' : 'Suivre ce patient');
       clear(result);
-      result.append(h('h2', {}, `Invitation : ${r.data.patient.name}`), h('label', {}, 'Mon nom', name), h('label', {}, 'Mon rôle', role), pass ? h('label', {}, 'Phrase secrète', pass) : null, ok);
+      result.append(h('h2', {}, label), h('p', { class: 'hint' }, 'Une seule fois : ensuite il suffit de scanner.'), h('label', {}, 'Mon nom', name), h('label', {}, 'Mon rôle', role), pass ? h('label', {}, 'Code du patient', pass) : null, ok);
     } catch (e) { rcv.parts.clear(); rcv.total = 0; rcv.sid = null; refresh(); toast(e.message); } finally { busyNow = false; }
   };
   const handle = text => {

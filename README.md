@@ -80,7 +80,10 @@ Quand il n'y a pas d'Internet, les dossiers partagés se synchronisent **en se s
 chacun montre SA section (saisies + messages), l'autre appareil la range en lecture seule.
 
 - **Partage sans Drive** : Dossiers partagés → « 4. Sans réseau » (nom + phrase secrète facultative), puis **Échanger par QR**.
-- **Invitation** (onglet « Invitation ») : l'autre appareil la scanne, choisit son nom et son rôle, saisit la phrase secrète.
+- **Deux scans, un seul code** : le QR « Ma section » est autonome (nom du patient, fiche, sel de chiffrement). Un soignant qui ne connaît pas encore
+  le patient le scanne, saisit **une seule fois** son nom, son rôle et le code choisi par le patient (mémorisé sur l'appareil) ; ensuite il suffit de
+  se scanner (2e scan en sens inverse pour renvoyer ses saisies / la demande de nouvelles). Le QR est recalculé à l'affichage : un QR imprimé ne se met pas à jour.
+- **Invitation** (facultative, onglet « Invitation ») : l'autre appareil la scanne, choisit son nom et son rôle, saisit la phrase secrète.
 - **Ma section** : période 6 h → Tout. Les saisies reçues s'ajoutent aux précédentes (sans doublon) ; deux appareils qui se
   scannent mutuellement sont à jour. Plusieurs codes : défilement automatique, ordre de scan libre, doublons ignorés.
 - Contenu compressé puis chiffré (AES-GCM) si le dossier a une phrase secrète. Repli : partager/coller les codes en texte.
