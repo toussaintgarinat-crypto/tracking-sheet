@@ -171,3 +171,20 @@ textarea.note { font: inherit; padding: .6rem .8rem; border: 2px solid var(--lin
 @media print { body.plabel main > *:not(.label-print) { display: none !important; } body.plabel .label-print { border: 0; } body.plabel .ltitle { color: #000; font-size: 28pt; } body.plabel .lnote { color: #000; } body.plabel .qr { width: 14cm; max-width: 100%; } }
 
 .modes .opt { padding: 0 .4rem; font-size: .95rem; }
+
+pre.raw.urg { font-size: 1.05rem; white-space: pre-wrap; background: var(--card); border: 2px solid var(--danger); border-radius: var(--radius); padding: 1rem; }
+.eprint { display: flex; flex-direction: column; gap: 1.2rem; }
+.ecard { display: flex; width: 85.6mm; max-width: 100%; min-height: 54mm; border: 2px solid var(--danger); border-radius: 8px; overflow: hidden; background: #fff; color: #111; }
+.ecard .etext { flex: 1; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; font-size: 9pt; line-height: 1.25; min-width: 0; }
+.ecard .etext strong { color: #b42318; font-size: 9.5pt; }
+.ecard .etext b { font-size: 11pt; overflow-wrap: anywhere; }
+.ecard .eall { font-weight: 700; overflow-wrap: anywhere; }
+.ecard .etext small { margin-top: auto; color: #444; }
+.ecard .eqr { width: 38mm; flex: none; padding: 3px; display: flex; align-items: center; background: #fff; }
+.ecard .eqr .qr { width: 100%; }
+.efull { background: var(--card); border: 2px dashed var(--line); border-radius: var(--radius); padding: 1rem; display: grid; gap: .6rem; }
+@media print {
+  body.pcard main > *:not(.eprint) { display: none !important; }
+  body.pcard .efull { border: 0; break-inside: avoid; } body.pcard .efull .qr { width: 9cm; } body.pcard .efull pre { color: #000; white-space: pre-wrap; font-size: 11pt; }
+  body.pcard .ecard { border-color: #000; }
+}

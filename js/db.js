@@ -1,6 +1,6 @@
 // Persistance locale : IndexedDB (aucune donnée ne quitte l'appareil)
 const DB_NAME = 'suivi-hospitalier';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 let dbp;
 // repère « il y a des changements non sauvegardés » (rappel de sauvegarde)
 const touch = () => { try { localStorage.setItem('lastChange', String(Date.now())); } catch { /* ignoré */ } };
@@ -18,6 +18,7 @@ function open() {
         db.createObjectStore('templates', { keyPath: 'id' });
       }
       if (e.oldVersion < 2) db.createObjectStore('received', { keyPath: 'id' }); // bilans reçus (mode corps médical)
+      if (e.oldVersion < 4) db.createObjectStore('emergency', { keyPath: 'id' }); // fiches d'urgence (QR portefeuille)
       if (e.oldVersion < 3) { // sections des autres membres d'un dossier partagé (lecture seule)
         const rm = db.createObjectStore('remote', { keyPath: 'id' });
         rm.createIndex('patientId', 'patientId');
@@ -51,12 +52,12 @@ export const db = {
   // import/export en bloc (sauvegarde)
   async dump() {
     const out = {};
-    for (const s of ['patients', 'entries', 'templates', 'received']) out[s] = await db.all(s);
+    for (const s of ['patients', 'entries', 'templates', 'received', 'emergency']) out[s] = await db.all(s);
     return out;
   },
   async load(data, replace) {
     touch();
-    const stores = ['patients', 'entries', 'templates', 'received'];
+    const stores = ['patients', 'entries', 'templates', 'received', 'emergency'];
     await tx(stores, 'readwrite', t => {
       for (const s of stores) {
         const os = t.objectStore(s);
@@ -88,8 +89,8 @@ export const db = {
   // Purge totale (patients, saisies, modèles personnalisés)
   async purgeAll() {
     touch();
-    await tx(['entries', 'patients', 'templates', 'received'], 'readwrite', t => {
-      ['entries', 'patients', 'templates', 'received'].forEach(s => t.objectStore(s).clear());
+    await tx(['entries', 'patients', 'templates', 'received', 'emergency'], 'readwrite', t => {
+      ['entries', 'patients', 'templates', 'received', 'emergency'].forEach(s => t.objectStore(s).clear());
     });
   },
   purgeReceived: () => { touch(); return tx('received', 'readwrite', t => wrap(t.objectStore('received').clear())); },

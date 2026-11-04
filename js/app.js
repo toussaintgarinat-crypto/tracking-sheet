@@ -10,6 +10,7 @@ import * as bk from './backup.js';
 import * as sync from './sync.js';
 import * as qs from './qrsync.js';
 import { QUICK, QUICK_DRIVE, SECTIONS } from './aide.js';
+import * as ug from './urgence.js';
 import { setClientId, hasClientId, hasToken } from './drive.js';
 
 const app = document.getElementById('app');
@@ -54,6 +55,10 @@ const routes = [
   [/^share$/, shareView],
   [/^dossiers$/, dossiersView],
   [/^aide$/, aideView],
+  [/^urgence$/, urgenceListView],
+  [/^urgence\/lue$/, urgenceLueView],
+  [/^urgence\/([^/]+)\/carte$/, urgenceCarteView],
+  [/^urgence\/([^/]+)$/, urgenceEditView],
   [/^suivi$/, suiviView],
   [/^scansync$/, scanSyncView],
   [/^p\/([^/]+)\/acces$/, accesView],
@@ -77,6 +82,7 @@ function backupBanner() {
   const when = lastBackup ? `dernière sauvegarde le ${fmtDateLong(lastBackup)}` : 'aucune sauvegarde pour l’instant';
   return h('a', { class: 'banner', href: '#/backup' }, h('strong', {}, '⚠ Données non sauvegardées'), h('span', {}, `${when}. Touchez pour sauvegarder.`));
 }
+const urgenceLink = () => link('#/urgence', '🆘 Ma fiche d’urgence (QR portefeuille)', 'btn secondary');
 const aideLink = () => link('#/aide', '❓ Aide & guide d’utilisation', 'btn secondary');
 const dossiersLink = () => link('#/dossiers', '👥 Dossiers partagés', 'btn secondary');
 const backupLink = () => link('#/backup', '💾 Sauvegarde & restauration', 'btn secondary');
@@ -91,7 +97,7 @@ function modeSwitch() {
 
 async function render() {
   if (stopCamera) { stopCamera(); stopCamera = null; }
-  document.body.classList.remove('plabel');
+  document.body.classList.remove('plabel', 'pcard');
   const path = location.hash.replace(/^#\/?/, '');
   clear(app);
   setHeader('Suivi hospitalier', false);
@@ -115,6 +121,8 @@ function setHeader(title, back) {
 // Écran « parent » logique : le retour reste dans l'application (jamais hors de l'appli, même après un rechargement)
 function parentOf(path) {
   if (/^p\/[^/]+\/(new|table|qr|qrsync|acces|sync|messages|seuils)/.test(path)) return path.match(/^p\/[^/]+/)[0];
+  if (/^urgence\/[^/]+\/carte$/.test(path)) return 'urgence';
+  if (/^urgence\/.+/.test(path)) return 'urgence';
   if (/^r\/.+/.test(path)) return '';
   if (path === 'receive' || path === 'suivi' || path === 'scansync') return '';
   if (path === 'compose') return 'templates';
@@ -149,7 +157,7 @@ async function homeView() {
   put(list,
     link('#/new-patient', '＋ Nouveau patient', 'btn big'),
     h('div', { class: 'row' }, link('#/scan', '📷 Scanner une fiche papier', 'btn secondary'), link('#/templates', '📋 Modèles de fiches', 'btn secondary')),
-    dossiersLink(), backupLink(), aideLink(),
+    urgenceLink(), dossiersLink(), backupLink(), aideLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & purge'),
       h('p', {}, 'Rien n’est envoyé à un serveur, sauf les dossiers que vous choisissez de partager (Google Drive). Le reste est stocké dans le navigateur de cet appareil.'),
@@ -492,7 +500,7 @@ async function liberalHome() {
     link('#/suivi', '📊 Tableau de suivi de mes patients', 'btn big'),
     h('div', { class: 'row' }, link('#/scansync', '📷 Suivre un patient (scanner son QR)', 'btn secondary'), link('#/new-patient', '＋ Nouveau patient', 'btn secondary')),
     h('h2', {}, 'Mes patients'), list,
-    dossiersLink(), backupLink(), aideLink(),
+    urgenceLink(), dossiersLink(), backupLink(), aideLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     h('p', { class: 'hint' }, 'Application d’aide au suivi : elle ne remplace pas votre dossier patient. Données de santé réelles : vérifiez l’hébergement (HDS) avant d’utiliser Drive.'));
 }
@@ -509,7 +517,7 @@ async function medicalHome() {
     link('#/suivi', '📊 Tableau de suivi des patients', 'btn big'),
     link('#/receive', '📥 Recevoir un bilan (scanner)', 'btn secondary'),
     h('h2', {}, 'Bilans reçus'), list,
-    dossiersLink(), backupLink(), aideLink(),
+    urgenceLink(), dossiersLink(), backupLink(), aideLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     recs.length ? h('details', { class: 'danger-zone' }, h('summary', {}, 'Purge'),
       h('button', { class: 'btn danger', onclick: () => confirmDo('Supprimer DÉFINITIVEMENT tous les bilans reçus sur cet appareil ?', async () => { await db.purgeReceived(); toast('Bilans supprimés'); render(); }) }, 'Effacer tous les bilans reçus')) : null);
@@ -540,6 +548,7 @@ function receiveView() {
   }
   const handle = text => {
     if (done) return;
+    if (ug.isEmergency(text)) { try { sessionStorage.setItem('urgLue', text); } catch { /* ignoré */ } done = true; if (stopCamera) { stopCamera(); stopCamera = null; } location.hash = '#/urgence/lue'; return; }
     const list = rx.parseMany(text);
     if (!list.length) { if (text !== lastBad) { lastBad = text; toast('Ce code n’est pas un bilan de suivi'); } return; }
     for (const j of list) {
@@ -644,6 +653,83 @@ async function backupView() {
       h('p', { class: 'hint' }, 'Choisissez un fichier de sauvegarde (depuis Drive, Fichiers, une clé USB…).'),
       input, h('label', { class: 'btn secondary', for: 'bk-file' }, '📂 Choisir un fichier de sauvegarde'),
       info, rpassWrap, readBtn, h('label', {}, 'Mode', modeSel), goBtn));
+}
+
+// ---------- Fiche d'urgence (QR portefeuille) ----------
+async function urgenceListView() {
+  setHeader('Fiche d’urgence', true);
+  const list = (await db.all('emergency')).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  const cards = h('div', { class: 'cards' }, list.map(f => h('a', { class: 'card patient', href: `#/urgence/${f.id}/carte` },
+    h('strong', {}, f.label || f.name || 'Fiche'), h('span', {}, [f.name, f.blood && `Groupe ${f.blood}`].filter(Boolean).join(' · ')),
+    h('small', {}, `Modifiée le ${fmtDateLong(f.updated || Date.now())}`))));
+  if (!list.length) cards.append(h('p', { class: 'empty' }, 'Aucune fiche. Créez la vôtre, ou celle d’un proche (enfant, parent).'));
+  put(h('p', { class: 'lead' }, 'Les informations vitales dans un QR code, à glisser dans le portefeuille ou à afficher chez vous. En cas d’accident, les secours le scannent avec n’importe quel téléphone, sans application ni réseau.'),
+    cards, link('#/urgence/new', '＋ Créer une fiche d’urgence', 'btn big'),
+    h('p', { class: 'hint' }, 'Pensez aussi à renseigner « Santé » (iPhone) ou « Informations d’urgence » (Android) : accessibles écran verrouillé.'));
+}
+
+async function urgenceEditView(id) {
+  const existing = id === 'new' ? null : await db.get('emergency', id);
+  if (id !== 'new' && !existing) { location.hash = '#/urgence'; return; }
+  setHeader(existing ? 'Modifier la fiche' : 'Nouvelle fiche d’urgence', true);
+  const f = existing ? { ...ug.blank(), ...existing, contacts: [...ug.blank().contacts].map((c, i) => ({ ...c, ...(existing.contacts?.[i] || {}) })) } : ug.blank();
+  const inp = (key, label, ph, type = 'text') => h('label', {}, label, h('input', { type, value: f[key] || '', placeholder: ph || '', 'aria-label': label, oninput: e => { f[key] = e.target.value; count(); } }));
+  const area = (key, label, ph) => h('label', {}, label, h('textarea', { rows: 2, class: 'note', placeholder: ph || '', 'aria-label': label, oninput: e => { f[key] = e.target.value; count(); } }, f[key] || ''));
+  const blood = h('select', { 'aria-label': 'Groupe sanguin', onchange: e => { f.blood = e.target.value; count(); } }, ug.BLOODS.map(b => h('option', { value: b, selected: b === f.blood }, b || '— non renseigné')));
+  const counter = h('p', { class: 'hint' });
+  function count() { const n = ug.bytes(f); counter.textContent = `Taille du QR : ${n} / ${ug.MAX_BYTES} octets${n > ug.MAX_BYTES ? ' : trop dense, raccourcissez' : ''}`; counter.classList.toggle('error', n > ug.MAX_BYTES); }
+  const contactRow = (c, i) => h('div', { class: 'row' },
+    h('input', { type: 'text', value: c.n, placeholder: 'Nom', 'aria-label': `Contact ${i + 1} : nom`, oninput: e => { c.n = e.target.value; count(); } }),
+    h('input', { type: 'text', value: c.r, placeholder: 'Lien (mère, conjoint…)', 'aria-label': `Contact ${i + 1} : lien`, oninput: e => { c.r = e.target.value; count(); } }),
+    h('input', { type: 'text', inputmode: 'tel', value: c.t, placeholder: 'Téléphone', 'aria-label': `Contact ${i + 1} : téléphone`, oninput: e => { c.t = e.target.value; count(); } }));
+  const save = h('button', { class: 'btn big', type: 'button', onclick: async () => {
+    if (!f.name.trim()) return toast('Indiquez le nom de la personne');
+    if (ug.bytes(f) > ug.MAX_BYTES) return toast('Fiche trop longue pour un QR lisible : raccourcissez');
+    f.id = f.id || uid(); f.label = f.label || f.name; f.updated = Date.now();
+    await db.put('emergency', f); toast('Fiche enregistrée ✓'); location.hash = `#/urgence/${f.id}/carte`;
+  } }, 'Enregistrer et voir la carte');
+  put(h('p', { class: 'hint' }, '⚠ Toute personne qui scanne le QR lit ces informations, sans code : il doit rester lisible en urgence. Ne mettez que l’essentiel.'),
+    inp('name', 'Nom et prénom', 'Ex : Léa Martin'), inp('birth', 'Date de naissance', '', 'date'),
+    h('label', {}, 'Groupe sanguin', blood),
+    area('allergies', 'Allergies', 'Ex : pénicilline, arachide'), area('meds', 'Traitements en cours', 'Ex : insuline, anticoagulant'),
+    area('conditions', 'Antécédents / maladies', 'Ex : diabète type 1, asthme'), area('devices', 'Dispositifs médicaux', 'Ex : pacemaker, prothèse de hanche'),
+    h('h2', {}, 'Personnes à prévenir'), contactRow(f.contacts[0], 0), contactRow(f.contacts[1], 1), contactRow(f.contacts[2], 2),
+    inp('doctor', 'Médecin traitant', 'Ex : Dr Dupont'), inp('doctorTel', 'Téléphone du médecin', '', 'tel'),
+    area('note', 'Autre information utile', 'Ex : refus de transfusion, langue parlée'),
+    counter, save,
+    existing ? h('button', { class: 'btn danger', type: 'button', onclick: () => confirmDo('Supprimer cette fiche d’urgence ?', async () => { await db.del('emergency', existing.id); location.hash = '#/urgence'; }) }, 'Supprimer la fiche') : null);
+  count();
+}
+
+async function urgenceCarteView(id) {
+  const f = await db.get('emergency', id);
+  if (!f) { location.hash = '#/urgence'; return; }
+  setHeader('Carte d’urgence', true);
+  document.body.classList.add('pcard');
+  const text = ug.payload(f), n = ug.bytes(f);
+  const qr = () => { const w = h('div', { class: 'qr' }); w.innerHTML = qrSvg(text, { ecc: n > 450 ? 'L' : 'M' }); return w; }; // SVG généré localement
+  const L = ug.lines(f);
+  put(h('div', { class: 'eprint' },
+    h('div', { class: 'ecard' }, h('div', { class: 'etext' }, h('strong', {}, '🆘 URGENCE MÉDICALE'), h('b', {}, f.name),
+      f.birth ? h('span', {}, 'Né(e) le ' + f.birth.split('-').reverse().join('/')) : null, f.blood ? h('span', {}, 'Groupe ' + f.blood) : null,
+      f.allergies ? h('span', { class: 'eall' }, 'Allergies : ' + f.allergies) : null, h('small', {}, 'Scanner le QR code →')), h('div', { class: 'eqr' }, qr())),
+    h('div', { class: 'efull' }, h('h2', {}, 'Fiche d’urgence : ' + f.name), h('div', { class: 'qrbox' }, qr()), h('pre', { class: 'raw' }, L.join('\n')))),
+    h('p', { class: 'hint' }, `Le QR contient exactement ce texte (${n} octets) : tout lecteur de QR l’affiche, sans application ni réseau.`),
+    h('button', { class: 'btn big', type: 'button', onclick: () => window.print() }, '🖨 Imprimer (carte à découper + fiche)'),
+    h('p', { class: 'hint' }, 'À l’impression : la carte (format portefeuille) en haut, à découper et plastifier ; la fiche complète en dessous, à afficher chez vous en évidence (porte du frigo, entrée).'),
+    h('div', { class: 'row' }, link(`#/urgence/${id}`, '✎ Modifier', 'btn secondary'),
+      h('button', { class: 'btn secondary', type: 'button', onclick: async () => {
+        try { if (navigator.share) { await navigator.share({ text, title: 'Fiche d’urgence' }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+        try { await navigator.clipboard.writeText(text); toast('Texte copié'); } catch { toast('Copie impossible'); }
+      } }, '↗ Partager le texte')));
+}
+
+// Lecture d'une fiche d'urgence scannée avec l'application (mode soignant)
+function urgenceLueView() {
+  setHeader('Fiche d’urgence', true);
+  let text = ''; try { text = sessionStorage.getItem('urgLue') || ''; } catch { /* ignoré */ }
+  if (!text) { location.hash = '#/'; return; }
+  put(h('pre', { class: 'raw urg' }, text), h('p', { class: 'hint' }, 'Lue depuis le QR code. Rien n’est enregistré sur cet appareil.'));
 }
 
 // ---------- Aide / guide d'utilisation ----------

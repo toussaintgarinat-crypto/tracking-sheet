@@ -12,7 +12,7 @@ async function key(pass, salt, iter) {
   return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 
-export const counts = d => ({ patients: d.patients?.length || 0, entries: d.entries?.length || 0, templates: d.templates?.length || 0, received: d.received?.length || 0 });
+export const counts = d => ({ patients: d.patients?.length || 0, entries: d.entries?.length || 0, templates: d.templates?.length || 0, received: d.received?.length || 0, emergency: d.emergency?.length || 0 });
 
 export async function createBackup(pass) {
   const data = await db.dump();

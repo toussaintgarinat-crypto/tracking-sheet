@@ -32,6 +32,14 @@ export const SECTIONS = [
     'Vos données restent sur l’appareil. Seuls les dossiers que vous choisissez de partager (Drive ou QR) en sortent.',
     'Partout, « ‹ Retour » remonte d’un niveau et « 🏠 Menu principal » ramène à l’accueil.',
   ] },
+  { id: 'urgence', icon: '🆘', title: 'Fiche d’urgence (QR portefeuille)', items: [
+    'Menu → « 🆘 Ma fiche d’urgence » : créez la fiche de la personne (ou d’un proche) avec nom, date de naissance, groupe sanguin, allergies, traitements, antécédents, dispositifs médicaux, personnes à prévenir et médecin traitant.',
+    'Le QR code contient ce texte lisible : en cas d’accident, les secours le scannent avec n’importe quel téléphone, sans application ni réseau.',
+    '« 🖨 Imprimer » produit une carte au format portefeuille (à découper et plastifier) et une fiche complète à afficher chez soi, en évidence.',
+    'Le QR n’est volontairement pas protégé par un code : il doit rester lisible en urgence. Toute personne qui le scanne lit son contenu. N’y mettez que l’essentiel. Taille limitée pour rester lisible.',
+    'En mode soignant, « Recevoir un bilan » reconnaît aussi une fiche d’urgence et l’affiche (sans l’enregistrer).',
+    'Pensez à mettre vos informations d’urgence dans « Santé » (iPhone) ou « Informations d’urgence » (Android) : accessibles écran verrouillé. Mettez la fiche à jour quand un traitement change.',
+  ] },
   { id: 'saisie', icon: '✍️', title: 'Saisir un suivi', items: [
     'Accueil → « ＋ Nouveau patient » : nom ou initiales, service, modèle de fiche (Général, Pédiatrie, Maternité, Chirurgie, Gériatrie, Oncologie, Soins continus, ou une fiche à vous).',
     'Fiche du patient → « ＋ Nouvelle saisie » : la date et l’heure sont remplies, modifiables. Si la tâche a été faite plus tôt, « −15 min », « −1 h »… décalent l’heure.',
