@@ -43,6 +43,23 @@ La restauration relit ce fichier, en mode **fusion** (par défaut, sans doublons
 Une bannière rappelle de sauvegarder quand des données ont changé depuis la dernière sauvegarde.
 Aucun envoi automatique vers un cloud tiers (RGPD) : c'est l'utilisateur qui choisit où ranger le fichier.
 
+## Dossiers partagés (Google Drive)
+
+Écran **Dossiers partagés** : un même patient partagé entre plusieurs personnes (parents, médecin, orthophoniste…).
+
+- **Une section par auteur** : chaque membre n'écrit que dans son fichier `m-<id>.json` du dossier Drive ; les autres
+  le voient en lecture seule (🔒, avec le nom de l'auteur). Aucun conflit d'écriture, tout le monde travaille en parallèle.
+- **Pièces communes** (nom, service, modèle de fiche) : `dossier.json` protégé par un **verrou d'édition** de 5 min
+  (`lock.json`) : une seule personne les modifie à la fois. Le verrou est « au mieux » (Drive n'offre pas d'écriture atomique).
+- **Rôles** : Propriétaire, Parent (saisie + fiche commune), Soignant (saisie), Lecture seule. Les droits réels sont ceux
+  du partage Drive (Éditeur/Lecteur) : si l'écriture est refusée, l'app passe en lecture seule.
+- **Mise en route** : créer un ID client OAuth « Application Web » dans Google Cloud (Drive API activée), le coller dans
+  l'écran ; créer un dossier Drive, le partager avec les membres, coller son lien. Portée `drive` (la portée `drive.file`
+  ne voit pas les fichiers créés par les autres membres) ; en mode test Google, ajouter les comptes en « utilisateurs test ».
+- **Synchronisation manuelle** (bouton) ; fonctionne hors-ligne en local, se synchronise ensuite. Fichiers JSON **non chiffrés** dans le Drive.
+- **Évolution PostgreSQL** : `js/sync.js` ne parle qu'à un fournisseur `{list, read, write}` (`js/drive.js`) ; une API
+  PostgreSQL implémente la même interface sans toucher au reste.
+
 ## Format du QR code
 
 Chaque code est un JSON autonome lisible par n'importe quel lecteur :

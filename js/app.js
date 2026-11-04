@@ -7,6 +7,8 @@ import { qrSvg } from './qr.js';
 import * as scan from './scan.js';
 import * as rx from './receive.js';
 import * as bk from './backup.js';
+import * as sync from './sync.js';
+import { setClientId, hasClientId } from './drive.js';
 
 const app = document.getElementById('app');
 const titleEl = document.getElementById('title');
@@ -48,6 +50,8 @@ const routes = [
   [/^compose$/, composeView],
   [/^scan$/, scanView],
   [/^share$/, shareView],
+  [/^dossiers$/, dossiersView],
+  [/^p\/([^/]+)\/sync$/, syncView],
   [/^backup$/, backupView],
   [/^receive$/, receiveView],
   [/^r\/(.+)$/, receivedView],
@@ -64,6 +68,7 @@ function backupBanner() {
   const when = lastBackup ? `dernière sauvegarde le ${fmtDateLong(lastBackup)}` : 'aucune sauvegarde pour l’instant';
   return h('a', { class: 'banner', href: '#/backup' }, h('strong', {}, '⚠ Données non sauvegardées'), h('span', {}, `${when}. Touchez pour sauvegarder.`));
 }
+const dossiersLink = () => link('#/dossiers', '👥 Dossiers partagés', 'btn secondary');
 const backupLink = () => link('#/backup', '💾 Sauvegarde & restauration', 'btn secondary');
 
 function modeSwitch() {
@@ -83,6 +88,8 @@ async function render() {
     const m = path.match(re);
     if (m) {
       try { await fn(...m.slice(1)); } catch (err) { console.error(err); put(h('p', { class: 'error' }, 'Erreur : ' + err.message)); }
+      // sur tous les écrans secondaires : retour d'un niveau + retour au menu principal (sauf scanner caméra en cours)
+      if (path) put(h('div', { class: 'row navbar' }, h('a', { class: 'btn secondary', href: '#/' + parentOf(path) }, '‹ Retour'), link('#/', '🏠 Menu principal', 'btn secondary')));
       return;
     }
   }
@@ -93,7 +100,15 @@ function setHeader(title, back) {
   document.title = title + ' · Suivi';
   backBtn.hidden = !back;
 }
-backBtn.addEventListener('click', () => (history.length > 1 ? history.back() : (location.hash = '#/')));
+// Écran « parent » logique : le retour reste dans l'application (jamais hors de l'appli, même après un rechargement)
+function parentOf(path) {
+  if (/^p\/[^/]+\/(new|table|qr|sync)/.test(path)) return path.match(/^p\/[^/]+/)[0];
+  if (/^r\/.+/.test(path)) return '';
+  if (path === 'receive') return '';
+  if (path === 'compose') return 'templates';
+  return '';
+}
+backBtn.addEventListener('click', () => { location.hash = '#/' + parentOf(location.hash.replace(/^#\/?/, '')); });
 window.addEventListener('hashchange', render);
 
 const link = (href, text, cls = 'btn') => h('a', { href, class: cls }, text);
@@ -109,22 +124,22 @@ async function homeView() {
   put(h('p', { class: 'lead' }, 'Fonctionne sans réseau. Les données restent sur cet appareil.'));
   const list = h('div', { class: 'cards' });
   for (const p of patients) {
-    const entries = await db.entriesOf(p.id);
+    const entries = await db.allEntriesOf(p.id);
     const last = entries.sort((a, b) => b.ts - a.ts)[0];
     const t = tpls.find(x => x.id === p.templateId);
     list.append(h('a', { class: 'card patient', href: `#/p/${p.id}` },
       h('strong', {}, p.name),
-      h('span', {}, [p.service, t?.name].filter(Boolean).join(' · ')),
+      h('span', {}, [p.service, t?.name, p.share ? '👥 partagé' : ''].filter(Boolean).join(' · ')),
       h('small', {}, last ? `${entries.length} saisie(s) · dernière : ${fmtDate(last.ts)}` : 'Aucune saisie')));
   }
   if (!patients.length) list.append(h('p', { class: 'empty' }, 'Aucun patient. Créez une fiche pour commencer.'));
   put(list,
     link('#/new-patient', '＋ Nouveau patient', 'btn big'),
     h('div', { class: 'row' }, link('#/scan', '📷 Scanner une fiche papier', 'btn secondary'), link('#/templates', '📋 Modèles de fiches', 'btn secondary')),
-    backupLink(),
+    dossiersLink(), backupLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & purge'),
-      h('p', {}, 'Aucune donnée n’est envoyée à un serveur. Tout est stocké dans le navigateur de cet appareil.'),
+      h('p', {}, 'Rien n’est envoyé à un serveur, sauf les dossiers que vous choisissez de partager (Google Drive). Le reste est stocké dans le navigateur de cet appareil.'),
       h('button', { class: 'btn danger', onclick: () => confirmDo('Supprimer DÉFINITIVEMENT tous les patients, saisies et fiches personnalisées de cet appareil ?', async () => { await db.purgeAll(); toast('Toutes les données ont été supprimées'); render(); }) }, 'Tout effacer')));
   if (deferredInstall) put(h('button', { class: 'btn secondary', onclick: async () => { deferredInstall.prompt(); deferredInstall = null; } }, '⬇ Installer l’application'));
 }
@@ -159,23 +174,25 @@ async function patientView(pid) {
   const p = await db.get('patients', pid);
   if (!p) { location.hash = '#/'; return; }
   setHeader(p.name, true);
-  const [t, entries, tpls] = await Promise.all([getTemplate(p.templateId), db.entriesOf(pid), allTemplates()]);
+  const [t, entries, tpls] = await Promise.all([getTemplate(p.templateId), db.allEntriesOf(pid), allTemplates()]);
+  const canWrite = sync.can(p, 'write');
   const fields = templateFields(t);
   const recent = entries.sort((a, b) => b.ts - a.ts).slice(0, 5);
   const sel = h('select', { 'aria-label': 'Fiche de suivi', onchange: async e => { p.templateId = e.target.value; await db.put('patients', p); toast('Fiche changée'); render(); } },
     tpls.map(x => h('option', { value: x.id, selected: x.id === t.id }, x.name)));
   put(
     p.service ? h('p', { class: 'lead' }, p.service) : null,
-    link(`#/p/${pid}/new`, '＋ Nouvelle saisie', 'btn big'),
+    p.share ? h('a', { class: 'banner info', href: `#/p/${pid}/sync` }, h('strong', {}, `👥 Dossier partagé · ${sync.ROLES[p.share.role].label}`), h('span', {}, p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}. Touchez pour synchroniser / gérer.` : 'Touchez pour synchroniser.')) : null,
+    canWrite ? link(`#/p/${pid}/new`, '＋ Nouvelle saisie', 'btn big') : h('p', { class: 'hint' }, 'Lecture seule : vous ne pouvez pas ajouter de saisie.'),
     h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary')),
     h('label', {}, 'Fiche de suivi', sel),
     pdfBox(p, t, fields, entries),
     h('h2', {}, 'Dernières saisies'),
-    recent.length ? h('ul', { class: 'recent' }, recent.map(e => h('li', {}, h('a', { href: `#/p/${pid}/new/${e.id}` },
-      h('b', {}, fmtDate(e.ts)), ' ✎ ',
+    recent.length ? h('ul', { class: 'recent' }, recent.map(e => h('li', {}, h(e._ro ? 'div' : 'a', e._ro ? { class: 'ro' } : { href: `#/p/${pid}/new/${e.id}` },
+      h('b', {}, fmtDate(e.ts)), e._ro ? ` · ${e._by} 🔒 ` : ' ✎ ',
       fields.filter(f => e.values[f.key] != null).slice(0, 4).map(f => `${f.short || f.label} ${fmtValue(f, e.values[f.key])}`).join(' · '))))) : h('p', { class: 'empty' }, 'Aucune saisie.'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Sortie d’hospitalisation / purge'),
-      h('button', { class: 'btn danger', onclick: () => confirmDo(`Supprimer définitivement ${p.name} et tout son historique (${entries.length} saisie(s)) ?`, async () => { await db.purgePatient(pid); toast('Patient supprimé'); location.hash = '#/'; }) }, 'Supprimer ce patient et son historique')));
+      h('button', { class: 'btn danger', onclick: () => confirmDo(`Supprimer définitivement ${p.name} et tout son historique (${entries.length} saisie(s)) ?`, async () => { if (p.share) await sync.leaveShare(p, true); else await db.purgePatient(pid); toast('Patient supprimé'); location.hash = '#/'; }) }, 'Supprimer ce patient et son historique')));
 }
 
 // Export PDF : choix de la période + bouton (utilisé sur la fiche patient)
@@ -193,6 +210,7 @@ function pdfBox(p, t, fields, entries) {
 async function entryView(pid, eid) {
   const p = await db.get('patients', pid);
   if (!p) { location.hash = '#/'; return; }
+  if (!sync.can(p, 'write')) { toast('Lecture seule'); location.hash = `#/p/${pid}`; return; }
   const existing = eid ? await db.get('entries', eid) : null;
   setHeader(existing ? 'Modifier la saisie' : 'Nouvelle saisie', true);
   const t = await getTemplate(p.templateId);
@@ -227,10 +245,10 @@ async function tableView(pid) {
   const p = await db.get('patients', pid);
   if (!p) { location.hash = '#/'; return; }
   setHeader(p.name + ' · Tableau', true);
-  const t = await getTemplate(p.templateId), fields = templateFields(t), all = await db.entriesOf(pid);
+  const t = await getTemplate(p.templateId), fields = templateFields(t), all = await db.allEntriesOf(pid);
   const st = { hours: 24, hide: false };
   const holder = h('div');
-  const draw = () => { holder.replaceChildren(buildTable(fields, filterPeriod(all, st.hours), { hideEmpty: st.hide, onRow: e => (location.hash = `#/p/${pid}/new/${e.id}`) })); };
+  const draw = () => { holder.replaceChildren(buildTable(fields, filterPeriod(all, st.hours), { hideEmpty: st.hide, onRow: sync.can(p, 'write') ? (e => (location.hash = `#/p/${pid}/new/${e.id}`)) : null })); };
   const per = periodPicker(st.hours, v => { st.hours = v; draw(); });
   const hide = h('input', { type: 'checkbox', onchange: e => { st.hide = e.target.checked; draw(); } });
   draw();
@@ -257,7 +275,7 @@ async function qrView(pid) {
   const p = await db.get('patients', pid);
   if (!p) { location.hash = '#/'; return; }
   setHeader(p.name + ' · QR', true);
-  const t = await getTemplate(p.templateId), fields = templateFields(t), all = await db.entriesOf(pid);
+  const t = await getTemplate(p.templateId), fields = templateFields(t), all = await db.allEntriesOf(pid);
   const st = { hours: 12, name: true, i: 0, payloads: [] };
   const box = h('div', { class: 'qrbox' }), info = h('p', { class: 'lead' }), raw = h('pre', { class: 'raw' });
   const nav = h('div', { class: 'row' });
@@ -450,7 +468,7 @@ async function medicalHome() {
   put(h('p', { class: 'lead' }, 'Recevez les bilans transmis par les patients (QR code), sans réseau. Les données restent sur cet appareil.'),
     link('#/receive', '📥 Recevoir un bilan (scanner)', 'btn big'),
     h('h2', {}, 'Bilans reçus'), list,
-    backupLink(),
+    dossiersLink(), backupLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     recs.length ? h('details', { class: 'danger-zone' }, h('summary', {}, 'Purge'),
       h('button', { class: 'btn danger', onclick: () => confirmDo('Supprimer DÉFINITIVEMENT tous les bilans reçus sur cet appareil ?', async () => { await db.purgeReceived(); toast('Bilans supprimés'); render(); }) }, 'Effacer tous les bilans reçus')) : null);
@@ -585,6 +603,93 @@ async function backupView() {
       h('p', { class: 'hint' }, 'Choisissez un fichier de sauvegarde (depuis Drive, Fichiers, une clé USB…).'),
       input, h('label', { class: 'btn secondary', for: 'bk-file' }, '📂 Choisir un fichier de sauvegarde'),
       info, rpassWrap, readBtn, h('label', {}, 'Mode', modeSel), goBtn));
+}
+
+// ---------- Dossiers partagés (Google Drive) ----------
+const busy = async (btn, fn) => {
+  const old = btn.textContent; btn.disabled = true; btn.textContent = '⏳ …';
+  try { await fn(); } catch (e) { console.error(e); toast(e.message || 'Erreur'); } finally { btn.disabled = false; btn.textContent = old; }
+};
+
+async function dossiersView() {
+  setHeader('Dossiers partagés', true);
+  const patients = (await db.all('patients')).sort((a, b) => a.name.localeCompare(b.name));
+  const shared = patients.filter(p => p.share), local = patients.filter(p => !p.share);
+  const cid = h('input', { type: 'text', placeholder: 'xxxx.apps.googleusercontent.com', 'aria-label': 'Identifiant client Google', value: (() => { try { return localStorage.getItem('gClientId') || ''; } catch { return ''; } })() });
+  const myName = h('input', { type: 'text', placeholder: 'Votre nom (ex : Dr Martin, Maman de Léa)', 'aria-label': 'Votre nom', value: sync.me().name });
+  const needName = () => { if (!myName.value.trim()) { myName.focus(); throw new Error('Indiquez votre nom (visible des autres membres).'); } if (!hasClientId() && !cid.value.trim()) { cid.focus(); throw new Error('Renseignez d’abord l’identifiant client Google.'); } setClientId(cid.value || (hasClientId() ? localStorage.getItem('gClientId') : '')); };
+
+  const folder = h('input', { type: 'text', placeholder: 'Collez le lien du dossier Drive partagé', 'aria-label': 'Lien du dossier Drive' });
+  const role = h('select', { 'aria-label': 'Mon rôle' }, ['parent', 'soignant', 'lecture'].map(r => h('option', { value: r }, sync.ROLES[r].label)));
+  const joinBtn = h('button', { class: 'btn big', type: 'button', onclick: () => busy(joinBtn, async () => {
+    needName();
+    const p = await sync.joinShare(folder.value, myName.value.trim(), role.value);
+    toast('Dossier rejoint ✓'); location.hash = `#/p/${p.id}`;
+  }) }, 'Rejoindre ce dossier');
+
+  const pick = h('select', { 'aria-label': 'Patient à partager' }, local.map(p => h('option', { value: p.id }, p.name)));
+  const folder2 = h('input', { type: 'text', placeholder: 'Lien du dossier Drive (créé et partagé par vous)', 'aria-label': 'Lien du dossier Drive' });
+  const shareBtn = h('button', { class: 'btn big', type: 'button', onclick: () => busy(shareBtn, async () => {
+    needName();
+    const p = local.find(x => x.id === pick.value); if (!p) throw new Error('Aucun patient à partager.');
+    await sync.createShare(p, folder2.value, myName.value.trim());
+    toast('Patient partagé ✓'); location.hash = `#/p/${p.id}`;
+  }) }, 'Partager ce patient');
+
+  put(
+    h('p', { class: 'lead' }, 'Un même dossier patient pour plusieurs personnes (parents, médecin, orthophoniste…). Chacun écrit dans sa propre section ; tout le monde voit les sections des autres, à jour après synchronisation.'),
+    h('h2', {}, 'Mes dossiers partagés'),
+    h('div', { class: 'cards' }, shared.length ? shared.map(p => h('a', { class: 'card patient', href: `#/p/${p.id}` }, h('strong', {}, p.name), h('span', {}, `👥 ${sync.ROLES[p.share.role].label} · ${p.share.memberName}`),
+      h('small', {}, p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}` : 'Jamais synchronisé'))) : h('p', { class: 'empty' }, 'Aucun dossier partagé.')),
+    h('h2', {}, '1. Réglages (une fois)'),
+    h('label', {}, 'Mon nom', myName),
+    h('label', {}, 'Identifiant client Google (OAuth)', cid),
+    hasClientId() ? null : h('p', { class: 'hint' }, 'À créer une fois dans Google Cloud Console : APIs → Google Drive API activée, puis Identifiants → ID client OAuth « Application Web », origine JavaScript autorisée = l’adresse de cette application. En test, ajoutez les comptes Google des membres comme « utilisateurs test ».'),
+    h('h2', {}, '2. Rejoindre un dossier partagé'),
+    h('p', { class: 'hint' }, 'On vous a invité (Éditeur ou Lecteur) sur un dossier Google Drive : collez son lien.'),
+    h('label', {}, 'Dossier Drive', folder), h('label', {}, 'Mon rôle', role), joinBtn,
+    h('h2', {}, '3. Partager un de mes patients'),
+    h('p', { class: 'hint' }, 'Créez un dossier vide dans Google Drive, partagez-le avec les autres membres (Éditeur pour ceux qui saisissent, Lecteur pour les autres), puis collez son lien.'),
+    local.length ? [h('label', {}, 'Patient', pick), h('label', {}, 'Dossier Drive', folder2), shareBtn] : h('p', { class: 'empty' }, 'Aucun patient local à partager.'),
+    h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & droits'),
+      h('p', {}, 'Les saisies du dossier partagé sont stockées dans VOTRE Google Drive (fichiers JSON non chiffrés). Les droits réels sont ceux du partage Drive (Éditeur / Lecteur) : l’application s’y conforme et passe en lecture seule si l’écriture est refusée. Les rôles de l’application règlent ce que chacun peut faire dans l’interface.')));
+}
+
+async function syncView(pid) {
+  const p = await db.get('patients', pid);
+  if (!p?.share) { location.hash = `#/p/${pid}`; return; }
+  setHeader(p.name + ' · Partage', true);
+  const remote = await db.remoteOf(pid), mine = await db.entriesOf(pid);
+  const status = h('p', { class: 'lead' }, p.share.syncedAt ? `Dernière synchronisation : ${fmtDateLong(p.share.syncedAt)}` : 'Jamais synchronisé');
+  const syncBtn = h('button', { class: 'btn big', type: 'button', onclick: () => busy(syncBtn, async () => {
+    const r = await sync.syncNow(p); toast(`Synchronisé ✓ (${r.members} membre(s))`); render();
+  }) }, '🔄 Synchroniser maintenant');
+  const members = h('ul', { class: 'recent' },
+    h('li', {}, h('div', { class: 'ro' }, h('b', {}, `${p.share.memberName} (moi)`), ` · ${sync.ROLES[p.share.role].label} · ${mine.length} saisie(s)`)),
+    remote.map(r => h('li', {}, h('div', { class: 'ro' }, h('b', {}, r.name), ` · ${sync.ROLES[r.role]?.label || '—'} · ${r.entries.length} saisie(s) 🔒`))));
+
+  // Pièces communes : nom, service, fiche → verrou d'édition (une seule personne à la fois)
+  const common = h('div', { class: 'stack' });
+  if (sync.can(p, 'common')) {
+    const editBtn = h('button', { class: 'btn secondary', type: 'button', onclick: () => busy(editBtn, async () => {
+      const lock = await sync.acquireLock(p);
+      if (!lock.ok) throw new Error(`${lock.by} modifie la fiche commune en ce moment (jusqu’à ${new Date(lock.until).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}). Réessayez plus tard.`);
+      const tpls = await allTemplates();
+      const name = h('input', { type: 'text', value: p.name, 'aria-label': 'Nom' }), service = h('input', { type: 'text', value: p.service || '', 'aria-label': 'Service' });
+      const sel = h('select', { 'aria-label': 'Fiche de suivi' }, tpls.map(t => h('option', { value: t.id, selected: t.id === p.templateId }, t.name)));
+      const ok = h('button', { class: 'btn', type: 'button', onclick: () => busy(ok, async () => { await sync.commitCommon(p, { name: name.value.trim() || p.name, service: service.value.trim(), templateId: sel.value }); toast('Fiche commune enregistrée ✓'); render(); }) }, 'Enregistrer pour tous');
+      const cancel = h('button', { class: 'btn secondary', type: 'button', onclick: () => busy(cancel, async () => { await sync.releaseLock(p); render(); }) }, 'Annuler (libérer le verrou)');
+      common.replaceChildren(h('p', { class: 'hint' }, '🔒 Vous avez le verrou (5 min) : les autres ne peuvent pas modifier cette fiche pendant ce temps.'), h('label', {}, 'Patient', name), h('label', {}, 'Service', service), h('label', {}, 'Fiche de suivi', sel), ok, cancel);
+    }) }, '✎ Modifier la fiche commune (nom, service, modèle)');
+    common.append(editBtn);
+  } else common.append(h('p', { class: 'hint' }, 'Votre rôle ne permet pas de modifier la fiche commune.'));
+
+  put(status, syncBtn,
+    h('h2', {}, 'Membres du dossier'), members,
+    h('p', { class: 'hint' }, 'Vous ne modifiez que vos propres saisies ; celles des autres (🔒) sont en lecture seule. Synchronisez pour envoyer les vôtres et recevoir celles des autres.'),
+    h('h2', {}, 'Fiche commune'), common,
+    h('details', { class: 'danger-zone' }, h('summary', {}, 'Quitter le partage'),
+      h('button', { class: 'btn danger', onclick: () => confirmDo('Arrêter le partage sur cet appareil ? Vos saisies restent ici, celles des autres sont retirées. Le dossier Drive n’est pas supprimé.', async () => { await sync.leaveShare(p, false); toast('Partage arrêté'); location.hash = `#/p/${pid}`; }) }, 'Quitter ce dossier partagé')));
 }
 
 // ---------- Partage de l'application par QR code ----------

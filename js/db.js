@@ -1,6 +1,6 @@
 // Persistance locale : IndexedDB (aucune donnée ne quitte l'appareil)
 const DB_NAME = 'suivi-hospitalier';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 let dbp;
 // repère « il y a des changements non sauvegardés » (rappel de sauvegarde)
 const touch = () => { try { localStorage.setItem('lastChange', String(Date.now())); } catch { /* ignoré */ } };
@@ -18,6 +18,10 @@ function open() {
         db.createObjectStore('templates', { keyPath: 'id' });
       }
       if (e.oldVersion < 2) db.createObjectStore('received', { keyPath: 'id' }); // bilans reçus (mode corps médical)
+      if (e.oldVersion < 3) { // sections des autres membres d'un dossier partagé (lecture seule)
+        const rm = db.createObjectStore('remote', { keyPath: 'id' });
+        rm.createIndex('patientId', 'patientId');
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -61,6 +65,14 @@ export const db = {
       }
     });
   },
+  // Saisies de tous les membres d'un dossier partagé : les miennes (modifiables) + celles des autres (lecture seule, _by = auteur)
+  async allEntriesOf(pid) {
+    const mine = await db.entriesOf(pid);
+    const remote = await tx('remote', 'readonly', t => wrap(t.objectStore('remote').index('patientId').getAll(pid)));
+    const others = remote.flatMap(r => (r.entries || []).map(e => ({ ...e, _by: r.name, _ro: true })));
+    return [...mine, ...others];
+  },
+  remoteOf: pid => tx('remote', 'readonly', t => wrap(t.objectStore('remote').index('patientId').getAll(pid))),
   entriesOf: pid => tx('entries', 'readonly', t => wrap(t.objectStore('entries').index('patientId').getAll(pid))),
 
   // Purge définitive d'un patient et de tout son historique

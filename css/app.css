@@ -143,3 +143,9 @@ textarea { font: inherit; width: 100%; padding: .6rem .8rem; border: 2px solid v
 .banner { display: flex; flex-direction: column; gap: .15rem; padding: .8rem 1rem; border-radius: var(--radius); background: #fff4e5; color: #7a2e0e; border: 2px solid #f79009; text-decoration: none; }
 @media (prefers-color-scheme: dark) { .banner { background: #3a2410; color: #ffd8a8; } }
 input[type=password] { font: inherit; min-height: var(--tap); padding: .5rem .8rem; border: 2px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--fg); width: 100%; }
+
+.banner.info { background: #e8f1fb; color: #0b3d75; border-color: var(--accent); }
+@media (prefers-color-scheme: dark) { .banner.info { background: #12273d; color: #cfe4fa; } }
+.navbar { margin-top: 1rem; }
+.recent li .ro { display: block; padding: .7rem 1rem; background: var(--card); border: 2px dashed var(--line); border-radius: var(--radius); color: var(--muted); }
+.by { font-weight: 400; color: var(--muted); }

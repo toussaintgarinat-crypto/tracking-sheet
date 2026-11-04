@@ -27,10 +27,10 @@ export function buildTable(fields, entries, { hideEmpty = false, onRow } = {}) {
       cols.map(f => h('th', {}, f.label, f.unit ? h('small', {}, ` ${f.unit}`) : null)),
       onRow ? h('th', { class: 'edit' }, '') : null));
   const tbody = h('tbody', {}, entries.map(e =>
-    h('tr', { onclick: onRow ? () => onRow(e) : null, tabindex: onRow ? 0 : null },
-      h('th', { class: 'time', scope: 'row' }, fmtDate(e.ts)),
+    h('tr', { onclick: onRow && !e._ro ? () => onRow(e) : null, tabindex: onRow && !e._ro ? 0 : null },
+      h('th', { class: 'time', scope: 'row' }, fmtDate(e.ts), e._by ? h('small', { class: 'by' }, ' · ' + e._by) : null),
       cols.map(f => h('td', {}, fmtValue(f, e.values[f.key]))),
-      onRow ? h('td', { class: 'edit' }, h('button', { type: 'button', class: 'mini', 'aria-label': `Modifier la saisie du ${fmtDate(e.ts)} (heure comprise)`, onclick: ev => { ev.stopPropagation(); onRow(e); } }, '✎')) : null)));
+      onRow ? h('td', { class: 'edit' }, e._ro ? null : h('button', { type: 'button', class: 'mini', 'aria-label': `Modifier la saisie du ${fmtDate(e.ts)} (heure comprise)`, onclick: ev => { ev.stopPropagation(); onRow(e); } }, '✎')) : null)));
   if (!entries.length) tbody.append(h('tr', {}, h('td', { colspan: cols.length + (onRow ? 2 : 1), class: 'empty' }, 'Aucune saisie sur cette période')));
   return h('div', { class: 'table-wrap' }, h('table', { class: 'grid' }, thead, tbody));
 }
