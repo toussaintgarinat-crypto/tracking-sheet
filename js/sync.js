@@ -13,6 +13,33 @@ import { uid } from './dom.js';
 import { drive, folderId } from './drive.js';
 
 const providers = { drive };
+
+// Chiffrement de bout en bout (facultatif mais recommandé) : AES-GCM 256, clé dérivée d'une phrase secrète partagée
+// entre les membres (PBKDF2-SHA256). Google ne voit que des fichiers illisibles. Phrase perdue = données perdues.
+const b64 = u8 => { let t = ''; for (let i = 0; i < u8.length; i += 0x8000) t += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(t); };
+const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+const keys = new Map();
+async function key(pass, salt) {
+  const id = pass + '|' + salt;
+  if (!keys.has(id)) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+    keys.set(id, await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: unb64(salt), iterations: 200000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']));
+  }
+  return keys.get(id);
+}
+async function seal(share, obj) {
+  if (!share.pass) return obj;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(share.pass, share.salt), new TextEncoder().encode(JSON.stringify(obj))));
+  return { enc: 'AES-GCM', salt: share.salt, iv: b64(iv), ct: b64(ct) };
+}
+async function unseal(share, doc) {
+  if (!doc?.enc) return doc;
+  if (!share.pass) throw new Error('Ce dossier est chiffré : la phrase secrète est requise.');
+  try { return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(doc.iv) }, await key(share.pass, doc.salt), unb64(doc.ct)))); }
+  catch { throw new Error('Phrase secrète incorrecte (ou fichier abîmé).'); }
+}
+const newSalt = () => b64(crypto.getRandomValues(new Uint8Array(16)));
 export const ROLES = {
   owner: { label: 'Propriétaire', write: true, common: true },
   parent: { label: 'Parent', write: true, common: true },
@@ -45,7 +72,7 @@ async function files(p) {
 async function publish(p, by) {
   const entries = await db.entriesOf(p.id);
   const doc = { v: 1, patientId: p.id, member: { id: p.share.memberId, name: p.share.memberName, role: p.share.role }, updated: Date.now(), entries, messages: p.msgs || [] };
-  await prov(p).write(p.share.folder, myFile(p), doc, by[myFile(p)]?.id);
+  await prov(p).write(p.share.folder, myFile(p), await seal(p.share, doc), by[myFile(p)]?.id);
 }
 
 // Récupère les sections des autres membres + les pièces communes
@@ -56,12 +83,12 @@ async function pull(p, by, list) {
     if (!/^m-[\w-]+\.json$/.test(f.name) || f.name === myFile(p)) continue;
     const id = `${p.id}:${f.name}`; seen.add(id);
     if (known.get(id)?.modified >= f.modified) continue;
-    const doc = await prov(p).read(f.id);
+    const doc = await unseal(p.share, await prov(p).read(f.id));
     await db.put('remote', { id, patientId: p.id, memberId: doc.member?.id, name: doc.member?.name || 'Anonyme', role: doc.member?.role, entries: Array.isArray(doc.entries) ? doc.entries : [], messages: Array.isArray(doc.messages) ? doc.messages : [], modified: f.modified });
   }
   for (const [id] of known) if (!seen.has(id)) await db.del('remote', id); // membre retiré du dossier
   if (by['dossier.json'] && (p.share.commonAt || 0) < by['dossier.json'].modified) {
-    const d = await prov(p).read(by['dossier.json'].id);
+    const d = await unseal(p.share, await prov(p).read(by['dossier.json'].id));
     if (d.template && d.template.custom && !(await db.get('templates', d.template.id))) await db.put('templates', d.template);
     Object.assign(p, { name: d.patient.name, service: d.patient.service, templateId: d.patient.templateId });
     p.share.commonAt = by['dossier.json'].modified;
@@ -82,13 +109,13 @@ export async function syncNow(p) {
 async function writeCommon(p, by) {
   const template = p.templateId.startsWith('cus-') ? await db.get('templates', p.templateId) : null;
   const doc = { v: 1, patient: { id: p.id, name: p.name, service: p.service, templateId: p.templateId }, template };
-  await prov(p).write(p.share.folder, 'dossier.json', doc, by['dossier.json']?.id);
+  await prov(p).write(p.share.folder, 'dossier.json', await seal(p.share, doc), by['dossier.json']?.id);
 }
 
 // Crée le partage d'un patient existant (le créateur devient propriétaire)
-export async function createShare(p, folderInput, memberName, providerKey = 'drive') {
+export async function createShare(p, folderInput, memberName, pass = '', providerKey = 'drive') {
   setMyName(memberName);
-  p.share = { provider: providerKey, folder: folderId(folderInput), role: 'owner', memberId: me().id, memberName };
+  p.share = { provider: providerKey, folder: folderId(folderInput), role: 'owner', memberId: me().id, memberName, ...(pass ? { pass, salt: newSalt() } : {}) };
   await drive.ready();
   const { by } = await files(p);
   if (by['dossier.json']) throw new Error('Ce dossier Drive contient déjà un dossier partagé : utilisez « Rejoindre ».');
@@ -98,13 +125,15 @@ export async function createShare(p, folderInput, memberName, providerKey = 'dri
 }
 
 // Rejoint un dossier partagé existant
-export async function joinShare(folderInput, memberName, role, providerKey = 'drive') {
+export async function joinShare(folderInput, memberName, role, pass = '', providerKey = 'drive') {
   setMyName(memberName);
   const share = { provider: providerKey, folder: folderId(folderInput), role, memberId: me().id, memberName };
   await drive.ready();
   const { by } = await files({ share });
   if (!by['dossier.json']) throw new Error('Aucun dossier partagé trouvé dans ce dossier Drive.');
-  const d = await providers[providerKey].read(by['dossier.json'].id);
+  const raw = await providers[providerKey].read(by['dossier.json'].id);
+  if (raw.enc) { if (!pass) throw new Error('Ce dossier est chiffré : saisissez la phrase secrète donnée par le propriétaire.'); share.pass = pass; share.salt = raw.salt; }
+  const d = await unseal(share, raw);
   if (d.template?.custom && !(await db.get('templates', d.template.id))) await db.put('templates', d.template);
   const existing = await db.get('patients', d.patient.id);
   const p = { ...(existing || {}), ...d.patient, created: existing?.created || Date.now(), updated: Date.now(), share };

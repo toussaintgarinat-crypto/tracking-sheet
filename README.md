@@ -68,6 +68,12 @@ Aucun envoi automatique vers un cloud tiers (RGPD) : c'est l'utilisateur qui cho
   (👍 / 🤔 / 🆘). Garde-fous : une demande en attente à la fois, 4 h minimum entre deux demandes, rien entre 22 h et 7 h.
   Pas de notification push (sans serveur) : le message s'affiche à l'ouverture de l'app. Pas un canal d'urgence (15 / 112).
 
+- **Seuils d'alerte** (`#/p/<id>/seuils`) : min/max par champ numérique, réglés sur l'appareil du soignant ; une valeur hors seuil passe le patient en 🔴.
+- **Synchronisation automatique** : au retour sur l'app, au retour du réseau, après une saisie et toutes les 5 min, dès qu'une
+  première synchronisation manuelle a donné un jeton Google valide (conservé pour la session de l'onglet seulement).
+- **Chiffrement de bout en bout** (phrase secrète du dossier, AES-GCM 256 + PBKDF2) : Google Drive ne voit que des fichiers illisibles.
+  La phrase se transmet hors Drive ; perdue, les données sont irrécupérables.
+
 ## Format du QR code
 
 Chaque code est un JSON autonome lisible par n'importe quel lecteur :

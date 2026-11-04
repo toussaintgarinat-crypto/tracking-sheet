@@ -8,7 +8,7 @@ import * as scan from './scan.js';
 import * as rx from './receive.js';
 import * as bk from './backup.js';
 import * as sync from './sync.js';
-import { setClientId, hasClientId } from './drive.js';
+import { setClientId, hasClientId, hasToken } from './drive.js';
 
 const app = document.getElementById('app');
 const titleEl = document.getElementById('title');
@@ -52,6 +52,7 @@ const routes = [
   [/^share$/, shareView],
   [/^dossiers$/, dossiersView],
   [/^suivi$/, suiviView],
+  [/^p\/([^/]+)\/seuils$/, seuilsView],
   [/^p\/([^/]+)\/messages$/, messagesView],
   [/^p\/([^/]+)\/sync$/, syncView],
   [/^backup$/, backupView],
@@ -104,7 +105,7 @@ function setHeader(title, back) {
 }
 // Écran « parent » logique : le retour reste dans l'application (jamais hors de l'appli, même après un rechargement)
 function parentOf(path) {
-  if (/^p\/[^/]+\/(new|table|qr|sync|messages)/.test(path)) return path.match(/^p\/[^/]+/)[0];
+  if (/^p\/[^/]+\/(new|table|qr|sync|messages|seuils)/.test(path)) return path.match(/^p\/[^/]+/)[0];
   if (/^r\/.+/.test(path)) return '';
   if (path === 'receive' || path === 'suivi') return '';
   if (path === 'compose') return 'templates';
@@ -188,7 +189,7 @@ async function patientView(pid) {
     p.share ? h('a', { class: 'banner info', href: `#/p/${pid}/sync` }, h('strong', {}, `👥 Dossier partagé · ${sync.ROLES[p.share.role].label}`), h('span', {}, p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}. Touchez pour synchroniser / gérer.` : 'Touchez pour synchroniser.')) : null,
     pend ? h('a', { class: 'banner', href: `#/p/${pid}/messages` }, h('strong', {}, `💬 ${pend.by} demande de vos nouvelles`), h('span', {}, 'Touchez pour répondre en un tap.')) : null,
     canWrite ? link(`#/p/${pid}/new`, '＋ Nouvelle saisie', 'btn big') : h('p', { class: 'hint' }, 'Lecture seule : vous ne pouvez pas ajouter de saisie.'),
-    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary'), p.share ? link(`#/p/${pid}/messages`, '💬 Messages', 'btn secondary') : null),
+    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary'), p.share ? link(`#/p/${pid}/messages`, '💬 Messages', 'btn secondary') : null, link(`#/p/${pid}/seuils`, '🔔 Seuils d’alerte', 'btn secondary')),
     h('label', {}, 'Fiche de suivi', sel),
     pdfBox(p, t, fields, entries),
     h('h2', {}, 'Dernières saisies'),
@@ -235,6 +236,7 @@ async function entryView(pid, eid) {
     p.updated = Date.now(); await db.put('patients', p);
     toast('Saisie enregistrée ✓');
     location.hash = `#/p/${pid}`;
+    if (p.share && hasToken()) sync.syncNow(p).catch(() => {}); // envoi discret (rien si hors-ligne / pas connecté)
   } }, 'Enregistrer');
   put(
     h('div', { class: 'whenbar' }, h('label', {}, existing ? 'Date / heure (modifiable)' : 'Date / heure de la tâche', when), now),
@@ -620,6 +622,40 @@ function lateness(last, hours, now = Date.now()) {
   return { lvl, dot: ['🟢', '🟠', '🔴'][lvl], txt: `Dernière saisie ${ago(age)}` };
 }
 
+// Valeurs hors seuil (dernière valeur connue de chaque champ surveillé)
+async function breaches(p, entries) {
+  const th = p.thresholds || {}, out = [];
+  const fields = templateFields(await getTemplate(p.templateId));
+  const sorted = [...entries].sort((a, b) => b.ts - a.ts);
+  for (const [k, { min, max }] of Object.entries(th)) {
+    const f = fields.find(x => x.key === k), e = sorted.find(x => typeof x.values[k] === 'number');
+    if (!f || !e) continue;
+    const v = e.values[k];
+    if (max != null && v > max) out.push(`${f.short || f.label} ${v} > ${max} (${fmtDate(e.ts)})`);
+    else if (min != null && v < min) out.push(`${f.short || f.label} ${v} < ${min} (${fmtDate(e.ts)})`);
+  }
+  return out;
+}
+
+async function seuilsView(pid) {
+  const p = await db.get('patients', pid);
+  if (!p) { location.hash = '#/'; return; }
+  setHeader(p.name + ' · Seuils', true);
+  const fields = templateFields(await getTemplate(p.templateId)).filter(f => f.type === 'number' || f.type === 'scale');
+  const th = { ...(p.thresholds || {}) };
+  const rows = fields.map(f => {
+    const num = (k, ph) => h('input', { type: 'text', inputmode: 'decimal', placeholder: ph, 'aria-label': `${f.label} ${ph}`, value: th[f.key]?.[k] ?? '', oninput: e => {
+      const v = e.target.value.replace(',', '.').trim(), cur = th[f.key] || {};
+      cur[k] = v === '' || isNaN(+v) ? null : +v;
+      if (cur.min == null && cur.max == null) delete th[f.key]; else th[f.key] = cur;
+    } });
+    return h('div', { class: 'card' }, h('strong', {}, f.label + (f.unit ? ` (${f.unit})` : '')), h('div', { class: 'row' }, num('min', 'Alerte si en dessous de'), num('max', 'Alerte si au-dessus de')));
+  });
+  put(h('p', { class: 'lead' }, 'Réglés sur cet appareil. Une valeur hors seuil passe le patient en 🔴 dans le tableau de suivi (d’après la dernière valeur saisie).'),
+    h('div', { class: 'cards' }, rows.length ? rows : h('p', { class: 'empty' }, 'Cette fiche n’a pas de champ numérique.')),
+    h('button', { class: 'btn big', type: 'button', onclick: async () => { p.thresholds = th; await db.put('patients', p); toast('Seuils enregistrés ✓'); location.hash = `#/p/${pid}`; } }, 'Enregistrer'));
+}
+
 async function suiviView() {
   setHeader('Tableau de suivi', true);
   const shared = (await db.all('patients')).filter(p => p.share);
@@ -629,7 +665,9 @@ async function suiviView() {
     const es = await db.allEntriesOf(p.id), last = Math.max(0, ...es.map(e => e.ts));
     const th = await sync.thread(p), hrs = p.alertHours || 6;
     const lastReply = th.all.filter(m => m.kind === 'reply').pop();
-    rows.push({ key: p.id, name: p.name, href: `#/p/${p.id}`, hours: hrs, late: lateness(last, hrs), pending: th.pending, lastReply, p });
+    const br = await breaches(p, es), late = lateness(last, hrs);
+    if (br.length) { late.lvl = 2; late.dot = '🔴'; }
+    rows.push({ key: p.id, name: p.name, href: `#/p/${p.id}`, hours: hrs, late, br, pending: th.pending, lastReply, p });
   }
   for (const r of received) {
     const last = Math.max(0, ...rx.receivedEntries(r).map(e => e.ts));
@@ -643,13 +681,15 @@ async function suiviView() {
   const card = r => h('div', { class: 'card status l' + r.late.lvl },
     h('a', { href: r.href, class: 'sname' }, h('strong', {}, `${r.late.dot} ${r.name}`), r.bilan ? h('small', {}, ' · bilan reçu') : null),
     h('span', {}, r.late.txt + (r.bilan ? '' : ` · attendu toutes les ${r.hours} h`)),
+    ...(r.br || []).map(b => h('small', { class: 'alertmsg' }, '⚠ ' + b)),
     r.pending ? h('small', {}, `💬 Demande de ${r.pending.by} ${ago(Date.now() - r.pending.ts)} : en attente de réponse`) : null,
     r.lastReply && !r.pending ? h('small', { class: r.lastReply.choice === 'help' ? 'alertmsg' : '' }, `${sync.REPLIES[r.lastReply.choice] || 'Réponse'} · ${r.lastReply.by} ${ago(Date.now() - r.lastReply.ts)}`) : null,
     r.p ? h('div', { class: 'row' },
       h('label', { class: 'inline' }, 'Délai (h)', h('select', { 'aria-label': 'Délai de saisie attendu en heures', onchange: async e => { r.p.alertHours = +e.target.value; await db.put('patients', r.p); render(); } },
         [1, 2, 4, 6, 8, 12, 24, 48].map(v => h('option', { value: v, selected: v === r.hours }, v + ' h')))),
-      sync.can(r.p, 'ask') ? link(`#/p/${r.key}/messages`, '💬 Nouvelles', 'btn secondary small') : null) : null);
-  put(h('p', { class: 'lead' }, 'Tous vos patients en un coup d’œil, du plus en retard au plus à jour. 🟢 à jour · 🟠 retard · 🔴 grand retard (plus de 2× le délai attendu).'),
+      sync.can(r.p, 'ask') ? link(`#/p/${r.key}/messages`, '💬 Nouvelles', 'btn secondary small') : null,
+      link(`#/p/${r.key}/seuils`, '🔔 Seuils', 'btn secondary small')) : null);
+  put(h('p', { class: 'lead' }, 'Tous vos patients en un coup d’œil, du plus en retard au plus à jour. 🟢 à jour · 🟠 retard · 🔴 grand retard (plus de 2× le délai attendu) ou valeur hors seuil.'),
     syncAll,
     h('div', { class: 'cards' }, rows.length ? rows.map(card) : h('p', { class: 'empty' }, 'Aucun patient suivi. Rejoignez un dossier partagé ou scannez un bilan.')));
 }
@@ -696,9 +736,11 @@ async function dossiersView() {
 
   const folder = h('input', { type: 'text', placeholder: 'Collez le lien du dossier Drive partagé', 'aria-label': 'Lien du dossier Drive' });
   const role = h('select', { 'aria-label': 'Mon rôle' }, ['parent', 'soignant', 'lecture'].map(r => h('option', { value: r }, sync.ROLES[r].label)));
+  const pass = h('input', { type: 'password', placeholder: 'Phrase secrète du dossier (si chiffré)', 'aria-label': 'Phrase secrète', autocomplete: 'off' });
+  const pass2 = h('input', { type: 'password', placeholder: 'Phrase secrète (recommandé) : chiffre les fichiers', 'aria-label': 'Phrase secrète', autocomplete: 'off' });
   const joinBtn = h('button', { class: 'btn big', type: 'button', onclick: () => busy(joinBtn, async () => {
     needName();
-    const p = await sync.joinShare(folder.value, myName.value.trim(), role.value);
+    const p = await sync.joinShare(folder.value, myName.value.trim(), role.value, pass.value);
     toast('Dossier rejoint ✓'); location.hash = `#/p/${p.id}`;
   }) }, 'Rejoindre ce dossier');
 
@@ -707,7 +749,7 @@ async function dossiersView() {
   const shareBtn = h('button', { class: 'btn big', type: 'button', onclick: () => busy(shareBtn, async () => {
     needName();
     const p = local.find(x => x.id === pick.value); if (!p) throw new Error('Aucun patient à partager.');
-    await sync.createShare(p, folder2.value, myName.value.trim());
+    await sync.createShare(p, folder2.value, myName.value.trim(), pass2.value);
     toast('Patient partagé ✓'); location.hash = `#/p/${p.id}`;
   }) }, 'Partager ce patient');
 
@@ -722,12 +764,12 @@ async function dossiersView() {
     hasClientId() ? null : h('p', { class: 'hint' }, 'À créer une fois dans Google Cloud Console : APIs → Google Drive API activée, puis Identifiants → ID client OAuth « Application Web », origine JavaScript autorisée = l’adresse de cette application. En test, ajoutez les comptes Google des membres comme « utilisateurs test ».'),
     h('h2', {}, '2. Rejoindre un dossier partagé'),
     h('p', { class: 'hint' }, 'On vous a invité (Éditeur ou Lecteur) sur un dossier Google Drive : collez son lien.'),
-    h('label', {}, 'Dossier Drive', folder), h('label', {}, 'Mon rôle', role), joinBtn,
+    h('label', {}, 'Dossier Drive', folder), h('label', {}, 'Mon rôle', role), h('label', {}, 'Phrase secrète', pass), joinBtn,
     h('h2', {}, '3. Partager un de mes patients'),
     h('p', { class: 'hint' }, 'Créez un dossier vide dans Google Drive, partagez-le avec les autres membres (Éditeur pour ceux qui saisissent, Lecteur pour les autres), puis collez son lien.'),
-    local.length ? [h('label', {}, 'Patient', pick), h('label', {}, 'Dossier Drive', folder2), shareBtn] : h('p', { class: 'empty' }, 'Aucun patient local à partager.'),
+    local.length ? [h('label', {}, 'Patient', pick), h('label', {}, 'Dossier Drive', folder2), h('label', {}, 'Phrase secrète (chiffrement de bout en bout)', pass2), h('p', { class: 'hint' }, 'Communiquez-la aux membres par un autre canal que Drive. Perdue, elle ne se récupère pas.'), shareBtn] : h('p', { class: 'empty' }, 'Aucun patient local à partager.'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & droits'),
-      h('p', {}, 'Les saisies du dossier partagé sont stockées dans VOTRE Google Drive (fichiers JSON non chiffrés). Les droits réels sont ceux du partage Drive (Éditeur / Lecteur) : l’application s’y conforme et passe en lecture seule si l’écriture est refusée. Les rôles de l’application règlent ce que chacun peut faire dans l’interface.')));
+      h('p', {}, 'Les saisies du dossier partagé sont stockées dans Google Drive. Avec une phrase secrète elles sont chiffrées de bout en bout (AES-256) : Google ne voit que des fichiers illisibles. Sans phrase secrète, ce sont des fichiers JSON lisibles. Les droits réels sont ceux du partage Drive (Éditeur / Lecteur) : l’application s’y conforme et passe en lecture seule si l’écriture est refusée. Les rôles de l’application règlent ce que chacun peut faire dans l’interface.')));
 }
 
 async function syncView(pid) {
@@ -784,6 +826,25 @@ function shareView() {
       try { await navigator.clipboard.writeText(url); toast('Lien copié'); } catch { toast('Copie impossible'); }
     } }, '↗ Partager le lien'));
 }
+
+// ---------- Synchronisation automatique ----------
+// Sans fenêtre de connexion : uniquement si un jeton Google valide existe (première synchronisation faite à la main
+// dans la session). Au retour sur l'app, au retour du réseau, après une saisie, puis toutes les 5 minutes.
+let autoBusy = false;
+async function autoSync() {
+  if (autoBusy || document.hidden || !navigator.onLine || !hasToken()) return;
+  autoBusy = true;
+  try {
+    const shared = (await db.all('patients')).filter(p => p.share);
+    for (const p of shared) { try { await sync.syncNow(p); } catch (e) { console.warn('auto-sync', e.message); } }
+    const path = location.hash.replace(/^#\/?/, '');
+    if (shared.length && /^(suivi)?$|^p\/[^/]+$|^p\/[^/]+\/messages$/.test(path) && !app.contains(document.activeElement?.closest?.('input,textarea,select'))) await render();
+  } finally { autoBusy = false; }
+}
+document.addEventListener('visibilitychange', autoSync);
+window.addEventListener('online', autoSync);
+setInterval(autoSync, 5 * 60000);
+setTimeout(autoSync, 1500);
 
 // ---------- Démarrage ----------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

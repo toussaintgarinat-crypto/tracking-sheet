@@ -1,12 +1,15 @@
 // Fournisseur de stockage « Google Drive » pour les dossiers partagés.
 // Chaque dossier patient = un dossier Drive partagé (Éditeur pour ceux qui écrivent, Lecteur sinon).
-// Authentification : Google Identity Services (OAuth, jeton gardé en mémoire uniquement).
+// Authentification : Google Identity Services (OAuth, jeton gardé pour la session de l'onglet uniquement (sessionStorage)).
 // Interface commune d'un fournisseur : ready(), list(folder), read(file), write(folder, name, obj, fileId?)
 // → un futur fournisseur « PostgreSQL / API » implémente les mêmes 4 méthodes (voir sync.js).
 const API = 'https://www.googleapis.com/drive/v3', UP = 'https://www.googleapis.com/upload/drive/v3';
 const SCOPE = 'https://www.googleapis.com/auth/drive'; // voir README : drive.file ne voit pas les fichiers créés par les autres membres
 
 let token = null, expires = 0, gisLoading = null;
+try { const t = JSON.parse(sessionStorage.getItem('gTok') || 'null'); if (t && t.exp > Date.now()) { token = t.tok; expires = t.exp; } } catch { /* ignoré */ }
+// vrai si on peut synchroniser sans fenêtre de connexion (jeton valide de cette session)
+export const hasToken = () => !!token && Date.now() < expires - 30000;
 const clientId = () => { try { return localStorage.getItem('gClientId') || ''; } catch { return ''; } };
 export const setClientId = v => { try { localStorage.setItem('gClientId', v.trim()); } catch { /* ignoré */ } };
 export const hasClientId = () => !!clientId();
@@ -30,7 +33,9 @@ async function auth(interactive = true) {
       client_id: clientId(), scope: SCOPE, prompt: interactive ? '' : 'none',
       callback: r => {
         if (r.error) return reject(new Error('Autorisation Google refusée : ' + r.error));
-        token = r.access_token; expires = Date.now() + (r.expires_in || 3600) * 1000; resolve(token);
+        token = r.access_token; expires = Date.now() + (r.expires_in || 3600) * 1000;
+        try { sessionStorage.setItem('gTok', JSON.stringify({ tok: token, exp: expires })); } catch { /* ignoré */ }
+        resolve(token);
       },
       error_callback: e => reject(new Error('Autorisation Google impossible : ' + (e.type || e.message || 'annulée'))),
     });
