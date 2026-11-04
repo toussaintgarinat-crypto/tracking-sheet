@@ -8,6 +8,7 @@ import * as scan from './scan.js';
 import * as rx from './receive.js';
 import * as bk from './backup.js';
 import * as sync from './sync.js';
+import * as qs from './qrsync.js';
 import { setClientId, hasClientId, hasToken } from './drive.js';
 
 const app = document.getElementById('app');
@@ -52,6 +53,8 @@ const routes = [
   [/^share$/, shareView],
   [/^dossiers$/, dossiersView],
   [/^suivi$/, suiviView],
+  [/^scansync$/, scanSyncView],
+  [/^p\/([^/]+)\/qrsync$/, qrSyncView],
   [/^p\/([^/]+)\/seuils$/, seuilsView],
   [/^p\/([^/]+)\/messages$/, messagesView],
   [/^p\/([^/]+)\/sync$/, syncView],
@@ -105,9 +108,9 @@ function setHeader(title, back) {
 }
 // Écran « parent » logique : le retour reste dans l'application (jamais hors de l'appli, même après un rechargement)
 function parentOf(path) {
-  if (/^p\/[^/]+\/(new|table|qr|sync|messages|seuils)/.test(path)) return path.match(/^p\/[^/]+/)[0];
+  if (/^p\/[^/]+\/(new|table|qr|qrsync|sync|messages|seuils)/.test(path)) return path.match(/^p\/[^/]+/)[0];
   if (/^r\/.+/.test(path)) return '';
-  if (path === 'receive' || path === 'suivi') return '';
+  if (path === 'receive' || path === 'suivi' || path === 'scansync') return '';
   if (path === 'compose') return 'templates';
   return '';
 }
@@ -186,10 +189,10 @@ async function patientView(pid) {
     tpls.map(x => h('option', { value: x.id, selected: x.id === t.id }, x.name)));
   put(
     p.service ? h('p', { class: 'lead' }, p.service) : null,
-    p.share ? h('a', { class: 'banner info', href: `#/p/${pid}/sync` }, h('strong', {}, `👥 Dossier partagé · ${sync.ROLES[p.share.role].label}`), h('span', {}, p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}. Touchez pour synchroniser / gérer.` : 'Touchez pour synchroniser.')) : null,
+    p.share ? h('a', { class: 'banner info', href: `#/p/${pid}/sync` }, h('strong', {}, `👥 Dossier partagé · ${sync.ROLES[p.share.role].label}`), h('span', {}, p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}. Touchez pour synchroniser / gérer.` : p.share.folder ? 'Touchez pour synchroniser.' : 'Échange par QR code, sans réseau. Touchez pour gérer.')) : null,
     pend ? h('a', { class: 'banner', href: `#/p/${pid}/messages` }, h('strong', {}, `💬 ${pend.by} demande de vos nouvelles`), h('span', {}, 'Touchez pour répondre en un tap.')) : null,
     canWrite ? link(`#/p/${pid}/new`, '＋ Nouvelle saisie', 'btn big') : h('p', { class: 'hint' }, 'Lecture seule : vous ne pouvez pas ajouter de saisie.'),
-    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary'), p.share ? link(`#/p/${pid}/messages`, '💬 Messages', 'btn secondary') : null, link(`#/p/${pid}/seuils`, '🔔 Seuils d’alerte', 'btn secondary')),
+    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary'), p.share ? link(`#/p/${pid}/messages`, '💬 Messages', 'btn secondary') : null, p.share ? link(`#/p/${pid}/qrsync`, '▦ Échanger par QR', 'btn secondary') : null, link(`#/p/${pid}/seuils`, '🔔 Seuils d’alerte', 'btn secondary')),
     h('label', {}, 'Fiche de suivi', sel),
     pdfBox(p, t, fields, entries),
     h('h2', {}, 'Dernières saisies'),
@@ -236,7 +239,7 @@ async function entryView(pid, eid) {
     p.updated = Date.now(); await db.put('patients', p);
     toast('Saisie enregistrée ✓');
     location.hash = `#/p/${pid}`;
-    if (p.share && hasToken()) sync.syncNow(p).catch(() => {}); // envoi discret (rien si hors-ligne / pas connecté)
+    if (p.share?.folder && hasToken()) sync.syncNow(p).catch(() => {}); // envoi discret (rien si hors-ligne / pas connecté)
   } }, 'Enregistrer');
   put(
     h('div', { class: 'whenbar' }, h('label', {}, existing ? 'Date / heure (modifiable)' : 'Date / heure de la tâche', when), now),
@@ -674,10 +677,11 @@ async function suiviView() {
     rows.push({ key: 'r' + r.id, name: r.name, href: `#/r/${encodeURIComponent(r.id)}`, hours: 24, late: lateness(last, 24), bilan: true });
   }
   rows.sort((a, b) => (a.late.lvl === 3 ? -1 : b.late.lvl === 3 ? 1 : b.late.lvl - a.late.lvl) || a.name.localeCompare(b.name));
-  const syncAll = h('button', { class: 'btn big', type: 'button', disabled: !shared.length, onclick: () => busy(syncAll, async () => {
-    let fail = 0; for (const p of shared) { try { await sync.syncNow(p); } catch (e) { fail++; console.error(e); } }
+  const syncAll = h('button', { class: 'btn big', type: 'button', disabled: !shared.some(p => p.share.folder), onclick: () => busy(syncAll, async () => {
+    let fail = 0; for (const p of shared.filter(x => x.share.folder)) { try { await sync.syncNow(p); } catch (e) { fail++; console.error(e); } }
     toast(fail ? `${fail} dossier(s) non synchronisé(s)` : 'Tout est synchronisé ✓'); render();
-  }) }, '🔄 Tout synchroniser');
+  }) }, '🔄 Tout synchroniser (Drive)');
+  const scanBtn = link('#/scansync', '📷 Recevoir par QR (sans réseau)', 'btn secondary');
   const card = r => h('div', { class: 'card status l' + r.late.lvl },
     h('a', { href: r.href, class: 'sname' }, h('strong', {}, `${r.late.dot} ${r.name}`), r.bilan ? h('small', {}, ' · bilan reçu') : null),
     h('span', {}, r.late.txt + (r.bilan ? '' : ` · attendu toutes les ${r.hours} h`)),
@@ -690,7 +694,7 @@ async function suiviView() {
       sync.can(r.p, 'ask') ? link(`#/p/${r.key}/messages`, '💬 Nouvelles', 'btn secondary small') : null,
       link(`#/p/${r.key}/seuils`, '🔔 Seuils', 'btn secondary small')) : null);
   put(h('p', { class: 'lead' }, 'Tous vos patients en un coup d’œil, du plus en retard au plus à jour. 🟢 à jour · 🟠 retard · 🔴 grand retard (plus de 2× le délai attendu) ou valeur hors seuil.'),
-    syncAll,
+    syncAll, link('#/scansync', '📷 Recevoir par QR (sans réseau)', 'btn secondary'),
     h('div', { class: 'cards' }, rows.length ? rows.map(card) : h('p', { class: 'empty' }, 'Aucun patient suivi. Rejoignez un dossier partagé ou scannez un bilan.')));
 }
 
@@ -702,7 +706,7 @@ async function messagesView(pid) {
   const th = await sync.thread(p);
   const canAsk = await sync.canAsk(p);
   const note = h('textarea', { rows: 2, placeholder: 'Message (facultatif)', 'aria-label': 'Message', class: 'note' });
-  const done = (ok) => { toast(ok ? 'Envoyé ✓' : 'Enregistré, sera envoyé à la prochaine synchronisation'); render(); };
+  const done = (ok) => { toast(ok ? 'Envoyé ✓' : 'Enregistré : partira à la prochaine synchronisation ou au prochain échange par QR'); render(); };
   const msgs = h('ul', { class: 'recent' }, th.all.length ? th.all.map(m => h('li', {}, h('div', { class: 'ro' + (m.choice === 'help' ? ' alertmsg' : '') },
     h('b', {}, `${m.mine ? 'Moi' : m.by}`), ` · ${fmtDateLong(m.ts)}`, h('br'),
     m.kind === 'ask' ? `💬 ${m.text}` : `${sync.REPLIES[m.choice] || ''}${m.text ? ' — ' + m.text : ''}`))) : h('li', { class: 'empty' }, 'Aucun message.'));
@@ -718,6 +722,109 @@ async function messagesView(pid) {
   put(h('p', { class: 'hint' }, '⚠ Ce n’est pas un canal d’urgence. En cas d’urgence : appelez le 15 ou le 112.'),
     ...blocks, h('h2', {}, 'Échanges'), msgs,
     h('button', { class: 'btn secondary', type: 'button', onclick: e => busy(e.currentTarget, async () => { await sync.syncNow(p); render(); }) }, '🔄 Actualiser'));
+}
+
+// ---------- Échange par QR code, sans réseau ----------
+async function qrSyncView(pid) {
+  const p = await db.get('patients', pid);
+  if (!p?.share) { location.hash = `#/p/${pid}`; return; }
+  setHeader(p.name + ' · Échange QR', true);
+  const st = { what: 'sec', hours: 24, i: 0, codes: [], auto: null };
+  const box = h('div', { class: 'qrbox' }), info = h('p', { class: 'lead' }), nav = h('div', { class: 'row' });
+  stopCamera = () => clearInterval(st.auto);
+  const draw = () => {
+    box.innerHTML = '';
+    const cur = st.codes[st.i];
+    const wrap = h('div', { class: 'qr' }); wrap.innerHTML = qrSvg(cur); // SVG généré localement
+    box.append(wrap);
+    info.textContent = `${st.what === 'sec' ? `Ma section (${st.count} saisie(s))` : 'Invitation'} · code ${st.i + 1} / ${st.codes.length}`;
+    nav.replaceChildren(
+      h('button', { class: 'btn secondary', disabled: st.i === 0, onclick: () => { st.i--; draw(); } }, '‹ Précédent'),
+      h('button', { class: 'btn secondary', disabled: st.i >= st.codes.length - 1, onclick: () => { st.i++; draw(); } }, 'Suivant ›'));
+  };
+  const load = async () => {
+    clearInterval(st.auto); st.auto = null; st.i = 0;
+    if (st.what === 'sec') { const r = await qs.sectionCodes(p, st.hours); st.codes = r.codes; st.count = r.count; }
+    else st.codes = await qs.inviteCodes(p);
+    draw();
+  };
+  const tabs = h('div', { class: 'opts period', role: 'group', 'aria-label': 'Contenu' },
+    [['sec', 'Ma section'], ['inv', 'Invitation']].map(([k, t]) => h('button', { type: 'button', class: 'opt' + (k === st.what ? ' on' : ''), onclick: e => {
+      tabs.querySelectorAll('.opt').forEach(b => b.classList.remove('on')); e.currentTarget.classList.add('on'); st.what = k; periodWrap.hidden = k !== 'sec'; load();
+    } }, t)));
+  const periodWrap = h('div', {}, periodPicker(st.hours, v => { st.hours = v; load(); }));
+  const autoBtn = h('button', { class: 'btn secondary', type: 'button', onclick: () => {
+    if (st.auto) { clearInterval(st.auto); st.auto = null; autoBtn.textContent = '▶ Défilement automatique'; return; }
+    autoBtn.textContent = '⏸ Arrêter le défilement';
+    st.auto = setInterval(() => { st.i = (st.i + 1) % st.codes.length; draw(); }, 1600);
+  } }, '▶ Défilement automatique');
+  put(h('p', { class: 'lead' }, 'Sans réseau, deux appareils se mettent à jour en se scannant. Montrez vos codes à l’autre appareil (« Recevoir par QR »), puis scannez les siens.'),
+    tabs, periodWrap, box, info, nav, autoBtn,
+    h('p', { class: 'hint' }, st.what === 'inv' ? '' : 'La période limite le nombre de codes : l’autre appareil ajoute ces saisies aux précédentes.'),
+    h('p', { class: 'hint' }, p.share.pass ? '🔒 Codes chiffrés avec la phrase secrète du dossier. L’invitation, elle, n’est pas chiffrée (nom du patient) : montrez-la en personne et ne la photographiez pas.' : 'Codes non chiffrés : pensez à définir une phrase secrète pour les dossiers sensibles.'),
+    link('#/scansync', '📷 Recevoir par QR', 'btn'),
+    h('button', { class: 'btn secondary', type: 'button', onclick: async () => {
+      const txt = st.codes.join('\n');
+      try { if (navigator.share) { await navigator.share({ text: txt, title: 'Dossier ' + p.name }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+      try { await navigator.clipboard.writeText(txt); toast('Codes copiés'); } catch { toast('Copie impossible'); }
+    } }, '↗ Partager en texte (message)'));
+  await load();
+}
+
+async function scanSyncView() {
+  setHeader('Recevoir par QR', true);
+  const patients = (await db.all('patients')).filter(p => p.share);
+  const rcv = new qs.Receiver();
+  const video = h('video', { class: 'cam', playsinline: '', muted: '' });
+  const status = h('p', { class: 'lead' }, 'Cadrez le QR code affiché sur l’autre appareil (« Échanger par QR »).');
+  const chips = h('div', { class: 'chips parts' }), result = h('div', { class: 'stack' });
+  let busyNow = false, finished = false;
+  const refresh = () => {
+    chips.replaceChildren(...(rcv.total > 1 ? Array.from({ length: rcv.total }, (_, i) => h('span', { class: 'chip' + (rcv.parts.has(i + 1) ? ' last' : '') }, `${rcv.parts.has(i + 1) ? '✓' : '·'} ${i + 1}`)) : []));
+    status.textContent = rcv.total > 1 ? `Codes reçus : ${rcv.count} / ${rcv.total}. Scannez les suivants, dans n’importe quel ordre.` : 'Cadrez le QR code affiché sur l’autre appareil.';
+  };
+  const finish = async () => {
+    if (busyNow || finished) return; busyNow = true;
+    try {
+      const r = await qs.open(rcv, patients);
+      finished = true; if (stopCamera) { stopCamera(); stopCamera = null; } video.hidden = true;
+      if (navigator.vibrate) navigator.vibrate(80);
+      if (r.kind === 'sec') { toast(r.stale ? 'Déjà à jour' : `Section de ${r.name} reçue ✓ (${r.added} nouvelle(s) saisie(s))`); location.hash = `#/p/${r.patient.id}`; return; }
+      // invitation : choisir son nom et son rôle
+      const name = h('input', { type: 'text', placeholder: 'Votre nom (ex : Dr Martin)', 'aria-label': 'Votre nom', value: sync.me().name });
+      const role = h('select', { 'aria-label': 'Mon rôle' }, ['parent', 'soignant', 'lecture'].map(x => h('option', { value: x }, sync.ROLES[x].label)));
+      const pass = r.data.enc ? h('input', { type: 'password', placeholder: 'Phrase secrète du dossier', 'aria-label': 'Phrase secrète', autocomplete: 'off' }) : null;
+      const ok = h('button', { class: 'btn big', type: 'button', onclick: () => busy(ok, async () => {
+        if (!name.value.trim()) { name.focus(); throw new Error('Indiquez votre nom.'); }
+        const p = await qs.acceptInvite(r.data, name.value.trim(), role.value, pass?.value || '');
+        toast('Dossier rejoint ✓'); location.hash = `#/p/${p.id}/qrsync`;
+      }) }, 'Rejoindre ce dossier');
+      clear(result);
+      result.append(h('h2', {}, `Invitation : ${r.data.patient.name}`), h('label', {}, 'Mon nom', name), h('label', {}, 'Mon rôle', role), pass ? h('label', {}, 'Phrase secrète', pass) : null, ok);
+    } catch (e) { rcv.parts.clear(); rcv.total = 0; rcv.sid = null; refresh(); toast(e.message); } finally { busyNow = false; }
+  };
+  const handle = text => {
+    if (finished) return;
+    const res = rcv.add(text);
+    if (res === 'bad') return;
+    if (res === 'other') toast('Code d’un autre échange : terminez d’abord celui-ci');
+    if (res === 'ok' && navigator.vibrate) navigator.vibrate(40);
+    refresh();
+    if (rcv.complete) finish();
+  };
+  const file = h('input', { type: 'file', accept: 'image/*', hidden: true, id: 'qr-photo2', onchange: async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try { const t = await rx.decodeImageFile(f); t ? handle(t) : toast('Aucun QR code lisible sur cette photo'); } catch { toast('Image illisible'); }
+  } });
+  const pasteBox = h('textarea', { rows: 4, class: 'note', placeholder: 'Collez ici les codes reçus en texte (SJ1|…)', 'aria-label': 'Codes en texte' });
+  const pasteWrap = h('div', { class: 'stack', hidden: true }, pasteBox, h('button', { class: 'btn secondary', onclick: () => { handle(pasteBox.value); pasteBox.value = ''; } }, 'Importer ces codes'));
+  put(video, status, chips, result,
+    h('div', { class: 'row' }, h('label', { class: 'btn secondary', for: 'qr-photo2' }, '🖼 Photo du QR'), file, h('button', { class: 'btn secondary', onclick: () => { pasteWrap.hidden = !pasteWrap.hidden; } }, '📋 Coller le texte')), pasteWrap);
+  if (!navigator.mediaDevices?.getUserMedia) { video.hidden = true; status.textContent = 'Caméra indisponible : utilisez « Photo du QR » ou « Coller le texte ».'; return; }
+  rx.startScanner(video, handle, err => {
+    video.hidden = true;
+    status.textContent = err?.name === 'NotAllowedError' ? 'Accès à la caméra refusé : autorisez-le dans les réglages, ou utilisez « Photo du QR ».' : 'Caméra indisponible : utilisez « Photo du QR » ou « Coller le texte ».';
+  }).then(stop => { if (finished) stop(); else stopCamera = stop; });
 }
 
 // ---------- Dossiers partagés (Google Drive) ----------
@@ -753,11 +860,19 @@ async function dossiersView() {
     toast('Patient partagé ✓'); location.hash = `#/p/${p.id}`;
   }) }, 'Partager ce patient');
 
+  const pick2 = h('select', { 'aria-label': 'Patient à partager par QR' }, local.map(p => h('option', { value: p.id }, p.name)));
+  const pass3 = h('input', { type: 'password', placeholder: 'Chiffre les codes QR (recommandé)', 'aria-label': 'Phrase secrète', autocomplete: 'off' });
+  const qrBtn = h('button', { class: 'btn', type: 'button', onclick: () => busy(qrBtn, async () => {
+    if (!myName.value.trim()) { myName.focus(); throw new Error('Indiquez votre nom (visible des autres membres).'); }
+    const p = local.find(x => x.id === pick2.value); if (!p) throw new Error('Aucun patient à partager.');
+    await sync.createLocalShare(p, myName.value.trim(), pass3.value);
+    toast('Partage créé : montrez l’invitation QR'); location.hash = `#/p/${p.id}/qrsync`;
+  }) }, 'Créer un partage par QR');
   put(
     h('p', { class: 'lead' }, 'Un même dossier patient pour plusieurs personnes (parents, médecin, orthophoniste…). Chacun écrit dans sa propre section ; tout le monde voit les sections des autres, à jour après synchronisation.'),
     h('h2', {}, 'Mes dossiers partagés'),
     h('div', { class: 'cards' }, shared.length ? shared.map(p => h('a', { class: 'card patient', href: `#/p/${p.id}` }, h('strong', {}, p.name), h('span', {}, `👥 ${sync.ROLES[p.share.role].label} · ${p.share.memberName}`),
-      h('small', {}, p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}` : 'Jamais synchronisé'))) : h('p', { class: 'empty' }, 'Aucun dossier partagé.')),
+      h('small', {}, !p.share.folder ? 'Échange par QR' : p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}` : 'Jamais synchronisé'))) : h('p', { class: 'empty' }, 'Aucun dossier partagé.')),
     h('h2', {}, '1. Réglages (une fois)'),
     h('label', {}, 'Mon nom', myName),
     h('label', {}, 'Identifiant client Google (OAuth)', cid),
@@ -768,6 +883,10 @@ async function dossiersView() {
     h('h2', {}, '3. Partager un de mes patients'),
     h('p', { class: 'hint' }, 'Créez un dossier vide dans Google Drive, partagez-le avec les autres membres (Éditeur pour ceux qui saisissent, Lecteur pour les autres), puis collez son lien.'),
     local.length ? [h('label', {}, 'Patient', pick), h('label', {}, 'Dossier Drive', folder2), h('label', {}, 'Phrase secrète (chiffrement de bout en bout)', pass2), h('p', { class: 'hint' }, 'Communiquez-la aux membres par un autre canal que Drive. Perdue, elle ne se récupère pas.'), shareBtn] : h('p', { class: 'empty' }, 'Aucun patient local à partager.'),
+    h('h2', {}, '4. Sans réseau : par QR code'),
+    h('p', { class: 'hint' }, 'Pas d’Internet ni de Drive ? Les appareils s’échangent leurs sections en se scannant, comme pour Drive : chacun garde la sienne.'),
+    local.length ? [h('label', {}, 'Patient', pick2), h('label', {}, 'Phrase secrète (facultative)', pass3), qrBtn] : null,
+    link('#/scansync', '📷 Scanner une invitation ou une section', 'btn secondary'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & droits'),
       h('p', {}, 'Les saisies du dossier partagé sont stockées dans Google Drive. Avec une phrase secrète elles sont chiffrées de bout en bout (AES-256) : Google ne voit que des fichiers illisibles. Sans phrase secrète, ce sont des fichiers JSON lisibles. Les droits réels sont ceux du partage Drive (Éditeur / Lecteur) : l’application s’y conforme et passe en lecture seule si l’écriture est refusée. Les rôles de l’application règlent ce que chacun peut faire dans l’interface.')));
 }
@@ -777,10 +896,10 @@ async function syncView(pid) {
   if (!p?.share) { location.hash = `#/p/${pid}`; return; }
   setHeader(p.name + ' · Partage', true);
   const remote = await db.remoteOf(pid), mine = await db.entriesOf(pid);
-  const status = h('p', { class: 'lead' }, p.share.syncedAt ? `Dernière synchronisation : ${fmtDateLong(p.share.syncedAt)}` : 'Jamais synchronisé');
-  const syncBtn = h('button', { class: 'btn big', type: 'button', onclick: () => busy(syncBtn, async () => {
+  const status = h('p', { class: 'lead' }, !p.share.folder ? 'Partage par QR code (sans réseau)' : p.share.syncedAt ? `Dernière synchronisation : ${fmtDateLong(p.share.syncedAt)}` : 'Jamais synchronisé');
+  const syncBtn = p.share.folder ? h('button', { class: 'btn big', type: 'button', onclick: () => busy(syncBtn, async () => {
     const r = await sync.syncNow(p); toast(`Synchronisé ✓ (${r.members} membre(s))`); render();
-  }) }, '🔄 Synchroniser maintenant');
+  }) }, '🔄 Synchroniser maintenant') : h('p', { class: 'hint' }, 'Dossier sans Drive : les sections s’échangent par QR code.');
   const members = h('ul', { class: 'recent' },
     h('li', {}, h('div', { class: 'ro' }, h('b', {}, `${p.share.memberName} (moi)`), ` · ${sync.ROLES[p.share.role].label} · ${mine.length} saisie(s)`)),
     remote.map(r => h('li', {}, h('div', { class: 'ro' }, h('b', {}, r.name), ` · ${sync.ROLES[r.role]?.label || '—'} · ${r.entries.length} saisie(s) 🔒`))));
@@ -801,7 +920,7 @@ async function syncView(pid) {
     common.append(editBtn);
   } else common.append(h('p', { class: 'hint' }, 'Votre rôle ne permet pas de modifier la fiche commune.'));
 
-  put(status, syncBtn,
+  put(status, syncBtn, link(`#/p/${pid}/qrsync`, '▦ Échanger par QR code (sans réseau)', 'btn secondary'),
     h('h2', {}, 'Membres du dossier'), members,
     h('p', { class: 'hint' }, 'Vous ne modifiez que vos propres saisies ; celles des autres (🔒) sont en lecture seule. Synchronisez pour envoyer les vôtres et recevoir celles des autres.'),
     h('h2', {}, 'Fiche commune'), common,
@@ -835,7 +954,7 @@ async function autoSync() {
   if (autoBusy || document.hidden || !navigator.onLine || !hasToken()) return;
   autoBusy = true;
   try {
-    const shared = (await db.all('patients')).filter(p => p.share);
+    const shared = (await db.all('patients')).filter(p => p.share?.folder);
     for (const p of shared) { try { await sync.syncNow(p); } catch (e) { console.warn('auto-sync', e.message); } }
     const path = location.hash.replace(/^#\/?/, '');
     if (shared.length && /^(suivi)?$|^p\/[^/]+$|^p\/[^/]+\/messages$/.test(path) && !app.contains(document.activeElement?.closest?.('input,textarea,select'))) await render();

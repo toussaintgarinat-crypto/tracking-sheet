@@ -16,10 +16,10 @@ const providers = { drive };
 
 // Chiffrement de bout en bout (facultatif mais recommandé) : AES-GCM 256, clé dérivée d'une phrase secrète partagée
 // entre les membres (PBKDF2-SHA256). Google ne voit que des fichiers illisibles. Phrase perdue = données perdues.
-const b64 = u8 => { let t = ''; for (let i = 0; i < u8.length; i += 0x8000) t += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(t); };
-const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+export const b64 = u8 => { let t = ''; for (let i = 0; i < u8.length; i += 0x8000) t += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(t); };
+export const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
 const keys = new Map();
-async function key(pass, salt) {
+export async function key(pass, salt) {
   const id = pass + '|' + salt;
   if (!keys.has(id)) {
     const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
@@ -39,7 +39,7 @@ async function unseal(share, doc) {
   try { return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(doc.iv) }, await key(share.pass, doc.salt), unb64(doc.ct)))); }
   catch { throw new Error('Phrase secrète incorrecte (ou fichier abîmé).'); }
 }
-const newSalt = () => b64(crypto.getRandomValues(new Uint8Array(16)));
+export const newSalt = () => b64(crypto.getRandomValues(new Uint8Array(16)));
 export const ROLES = {
   owner: { label: 'Propriétaire', write: true, common: true },
   parent: { label: 'Parent', write: true, common: true },
@@ -84,9 +84,9 @@ async function pull(p, by, list) {
     const id = `${p.id}:${f.name}`; seen.add(id);
     if (known.get(id)?.modified >= f.modified) continue;
     const doc = await unseal(p.share, await prov(p).read(f.id));
-    await db.put('remote', { id, patientId: p.id, memberId: doc.member?.id, name: doc.member?.name || 'Anonyme', role: doc.member?.role, entries: Array.isArray(doc.entries) ? doc.entries : [], messages: Array.isArray(doc.messages) ? doc.messages : [], modified: f.modified });
+    await db.put('remote', { id, patientId: p.id, memberId: doc.member?.id, name: doc.member?.name || 'Anonyme', role: doc.member?.role, entries: Array.isArray(doc.entries) ? doc.entries : [], messages: Array.isArray(doc.messages) ? doc.messages : [], modified: f.modified, src: 'drive' });
   }
-  for (const [id] of known) if (!seen.has(id)) await db.del('remote', id); // membre retiré du dossier
+  for (const [id, r] of known) if (r.src !== 'qr' && !seen.has(id)) await db.del('remote', id); // membre retiré du dossier Drive (les sections reçues par QR restent)
   if (by['dossier.json'] && (p.share.commonAt || 0) < by['dossier.json'].modified) {
     const d = await unseal(p.share, await prov(p).read(by['dossier.json'].id));
     if (d.template && d.template.custom && !(await db.get('templates', d.template.id))) await db.put('templates', d.template);
@@ -98,6 +98,7 @@ async function pull(p, by, list) {
 
 // Synchronisation complète : publier ma section, puis récupérer celle des autres
 export async function syncNow(p) {
+  if (!p.share.folder) throw new Error('Dossier sans Drive : échangez par QR code (écran « Échanger par QR »).');
   let { list, by } = await files(p);
   if (can(p, 'write')) { try { await publish(p, by); ({ list, by } = await files(p)); } catch (e) { if (e.status !== 403) throw e; p.share.role = 'lecture'; } }
   await pull(p, by, list);
@@ -122,6 +123,14 @@ export async function createShare(p, folderInput, memberName, pass = '', provide
   await writeCommon(p, by);
   await db.put('patients', p);
   return syncNow(p);
+}
+
+// Partage sans réseau : pas de dossier Drive, les sections s'échangent par QR code (voir qrsync.js)
+export async function createLocalShare(p, memberName, pass = '') {
+  setMyName(memberName);
+  p.share = { provider: 'qr', role: 'owner', memberId: me().id, memberName, ...(pass ? { pass, salt: newSalt() } : {}) };
+  await db.put('patients', p);
+  return p;
 }
 
 // Rejoint un dossier partagé existant

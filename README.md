@@ -74,6 +74,19 @@ Aucun envoi automatique vers un cloud tiers (RGPD) : c'est l'utilisateur qui cho
 - **Chiffrement de bout en bout** (phrase secrète du dossier, AES-GCM 256 + PBKDF2) : Google Drive ne voit que des fichiers illisibles.
   La phrase se transmet hors Drive ; perdue, les données sont irrécupérables.
 
+### Échange sans réseau par QR code
+
+Quand il n'y a pas d'Internet, les dossiers partagés se synchronisent **en se scannant** (`js/qrsync.js`) : même principe que Drive,
+chacun montre SA section (saisies + messages), l'autre appareil la range en lecture seule.
+
+- **Partage sans Drive** : Dossiers partagés → « 4. Sans réseau » (nom + phrase secrète facultative), puis **Échanger par QR**.
+- **Invitation** (onglet « Invitation ») : l'autre appareil la scanne, choisit son nom et son rôle, saisit la phrase secrète.
+- **Ma section** : période 6 h → Tout. Les saisies reçues s'ajoutent aux précédentes (sans doublon) ; deux appareils qui se
+  scannent mutuellement sont à jour. Plusieurs codes : défilement automatique, ordre de scan libre, doublons ignorés.
+- Contenu compressé puis chiffré (AES-GCM) si le dossier a une phrase secrète. Repli : partager/coller les codes en texte.
+- Compatible avec Drive : un dossier peut recevoir des sections par QR **et** par Drive (Drive prime pour un même membre).
+- Limite : l'invitation n'est pas chiffrée (elle contient le nom du patient) : à montrer en personne.
+
 ## Format du QR code
 
 Chaque code est un JSON autonome lisible par n'importe quel lecteur :
