@@ -128,32 +128,58 @@ export function warp(gray, w, h, quad, maxSide = 2000) {
   return { gray: out, w: W, h: H };
 }
 
-// ---------- Correction d'inclinaison (les lignes du tableau doivent être horizontales) ----------
-export function deskew(gray, w, h) {
+// ---------- Correction d'inclinaison ----------
+function darkPoints(gray, w, h) {
   const bin = binarize(normalize(gray, w, h));
   let n = 0; for (let i = 0; i < bin.length; i++) n += bin[i];
   const step = Math.max(1, Math.floor(n / 150000));
   const xs = [], ys = []; let c = 0;
   for (let i = 0; i < bin.length; i++) if (bin[i] && (c++ % step === 0)) { xs.push(i % w); ys.push((i / w) | 0); }
-  const off = Math.ceil(w * 0.1) + 2, size = h + 2 * off;
+  return { xs, ys };
+}
+function bilinear(gray, w, sx, sy, i0) { // i0 = y0*w+x0 déjà calculé par l'appelant
+  const x0 = sx | 0, fx = sx - x0, fy = sy - ((sy | 0));
+  return gray[i0] * (1 - fx) * (1 - fy) + gray[i0 + 1] * fx * (1 - fy) + gray[i0 + w] * (1 - fx) * fy + gray[i0 + w + 1] * fx * fy;
+}
+// Rotation (lignes horizontales) puis cisaillement (lignes verticales) : corrige aussi la perspective légère
+export function deskew(gray, w, h) {
+  let angle = 0, shear = 0;
+  const cx = w / 2, cy = h / 2;
+  const pts = darkPoints(gray, w, h);
+  // 1) angle des lignes horizontales : maximise la netteté du profil des lignes
+  const off = Math.ceil(Math.max(w, h) * 0.15) + 2;
   let best = 0, bestScore = -1;
-  for (let a = -5; a <= 5.0001; a += 0.2) {
-    const r = a * Math.PI / 180, sn = Math.sin(r), cs = Math.cos(r), hist = new Float32Array(size);
-    for (let i = 0; i < xs.length; i++) hist[Math.round(-xs[i] * sn + ys[i] * cs) + off]++;
-    let sc = 0; for (let j = 0; j < size; j++) sc += hist[j] * hist[j];
+  for (let a = -6; a <= 6.0001; a += 0.2) {
+    const r = a * Math.PI / 180, sn = Math.sin(r), cs = Math.cos(r), hist = new Float32Array(h + 2 * off);
+    for (let i = 0; i < pts.xs.length; i++) hist[Math.round(-(pts.xs[i] - cx) * sn + (pts.ys[i] - cy) * cs + cy) + off]++;
+    let sc = 0; for (let j = 0; j < hist.length; j++) sc += hist[j] * hist[j];
     if (sc > bestScore) { bestScore = sc; best = a; }
   }
-  if (Math.abs(best) < 0.15) return { gray, w, h, angle: 0 };
-  const r = best * Math.PI / 180, sn = Math.sin(r), cs = Math.cos(r), cx = w / 2, cy = h / 2;
+  angle = Math.abs(best) < 0.15 ? 0 : best;
+  // coordonnées après rotation
+  const rr = angle * Math.PI / 180, sn = Math.sin(rr), cs = Math.cos(rr);
+  const rx = pts.xs.map((x, i) => (x - cx) * cs + (pts.ys[i] - cy) * sn + cx);
+  const ry = pts.ys.map((y, i) => -(pts.xs[i] - cx) * sn + (y - cy) * cs + cy);
+  // 2) inclinaison des lignes verticales : cisaillement x' = x - (y - cy) * t
+  const offx = Math.ceil(Math.max(w, h) * 0.3) + 2;
+  let bt = 0, bs = -1;
+  for (let a = -9; a <= 9.0001; a += 0.2) {
+    const t = Math.tan(a * Math.PI / 180), hist = new Float32Array(w + 2 * offx);
+    for (let i = 0; i < rx.length; i++) hist[Math.round(rx[i] - (ry[i] - cy) * t) + offx]++;
+    let sc = 0; for (let j = 0; j < hist.length; j++) sc += hist[j] * hist[j];
+    if (sc > bs) { bs = sc; bt = a; }
+  }
+  shear = Math.abs(bt) < 0.15 ? 0 : Math.tan(bt * Math.PI / 180);
+  if (!angle && !shear) return { gray, w, h, angle: 0, shear: 0 };
   const out = new Uint8ClampedArray(w * h).fill(255);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const u = x - cx, v = y - cy;
+    // destination -> (annule le cisaillement) -> (annule la rotation) -> source
+    const u = x + (y - cy) * shear - cx, v = y - cy;
     const sx = u * cs - v * sn + cx, sy = u * sn + v * cs + cy;
     if (sx < 0 || sy < 0 || sx >= w - 1 || sy >= h - 1) continue;
-    const x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0, i = y0 * w + x0;
-    out[y * w + x] = gray[i] * (1 - fx) * (1 - fy) + gray[i + 1] * fx * (1 - fy) + gray[i + w] * (1 - fx) * fy + gray[i + w + 1] * fx * fy;
+    out[y * w + x] = bilinear(gray, w, sx, sy, (sy | 0) * w + (sx | 0));
   }
-  return { gray: out, w, h, angle: best };
+  return { gray: out, w, h, angle, shear };
 }
 
 // ---------- Détection des tableaux, lignes, colonnes ----------
@@ -210,6 +236,101 @@ export function detectGrid(bin, w, h) {
     if (xs.length < 2) return null;
   }
   xs = trimEdges(trimSupport(xs, ys, (y, a, b) => (y < 0 || y >= h ? 0 : rowFrac(y, a, b))));
+  return xs.length >= 2 && ys.length >= 2 ? { xs, ys } : null;
+}
+
+// ---------- Suivi des lignes par bandes + redressement en perspective ----------
+function runs(flags, gap = 2) {
+  const out = []; let st = -1, last = -100;
+  for (let i = 0; i < flags.length; i++) {
+    if (!flags[i]) continue;
+    if (st >= 0 && i - last > gap) { out.push({ c: (st + last) / 2, wd: last - st + 1 }); st = i; } else if (st < 0) st = i;
+    last = i;
+  }
+  if (st >= 0) out.push({ c: (st + last) / 2, wd: last - st + 1 });
+  return out;
+}
+
+// Trouve les lignes (même obliques / en éventail) : chaque bande détecte ses traits, puis on les relie d'une bande à l'autre.
+function findTracks(bin, w, h, vertical) {
+  const K = 32, len = vertical ? h : w, perp = vertical ? w : h, maxWd = Math.max(14, perp * 0.02);
+  const tracks = [];
+  for (let s = 0; s < K; s++) {
+    const a0 = Math.floor(s * len / K), a1 = Math.floor((s + 1) * len / K), span = a1 - a0;
+    const counts = new Uint16Array(perp);
+    if (vertical) { for (let y = a0; y < a1; y++) for (let x = 0; x < w; x++) counts[x] += bin[y * w + x]; }
+    else { for (let y = 0; y < h; y++) for (let x = a0; x < a1; x++) counts[y] += bin[y * w + x]; }
+    const cands = runs(Array.from(counts, c => c > 0.4 * span)).filter(r => r.wd <= maxWd);
+    const used = new Set();
+    for (const cd of cands) {
+      let best = null, bd = 1e9;
+      for (const t of tracks) {
+        if (used.has(t) || s - t.s > 2) continue;
+        const n = t.pts.length, slope = n >= 2 ? (t.pts[n - 1][1] - t.pts[Math.max(0, n - 4)][1]) / (t.pts[n - 1][0] - t.pts[Math.max(0, n - 4)][0]) : 0;
+        const d = Math.abs(cd.c - (t.c + slope * (s - t.s)));
+        if (d < 12 && d < bd) { bd = d; best = t; }
+      }
+      if (best) { best.pts.push([s, cd.c]); best.s = s; best.c = cd.c; used.add(best); }
+      else { const t = { pts: [[s, cd.c]], s, c: cd.c }; tracks.push(t); used.add(t); }
+    }
+  }
+  // ajustement linéaire c = a + b * t (t = position le long de l'axe)
+  const fits = [];
+  for (const t of tracks) {
+    if (t.pts.length < 0.55 * K) continue;
+    const xs = t.pts.map(p => (p[0] + 0.5) * len / K), ys = t.pts.map(p => p[1]), n = xs.length;
+    const mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+    let num = 0, den = 0; for (let i = 0; i < n; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
+    const b = den ? num / den : 0;
+    fits.push({ a: my - b * mx, b, mid: my + b * (len / 2 - mx), from: t.pts[0][0] * len / K, to: (t.pts.at(-1)[0] + 1) * len / K });
+  }
+  fits.sort((p, q) => p.mid - q.mid);
+  return fits.filter((f, i) => i === 0 || f.mid - fits[i - 1].mid > 8);
+}
+
+const median = a => { const b = [...a].sort((x, y) => x - y); return b[b.length >> 1]; };
+
+// Lignes du tableau : on écarte celles qui sortent de l'étendue des lignes perpendiculaires (bords de feuille, titre)
+function trackGrid(bin, w, h) {
+  let H = findTracks(bin, w, h, false), V = findTracks(bin, w, h, true);
+  if (H.length < 2 || V.length < 2) return null;
+  const yFrom = median(V.map(v => v.from)), yTo = median(V.map(v => v.to));
+  const xFrom = median(H.map(t => t.from)), xTo = median(H.map(t => t.to));
+  H = H.filter(t => t.mid >= yFrom - 15 && t.mid <= yTo + 15);
+  V = V.filter(t => t.mid >= xFrom - 15 && t.mid <= xTo + 15);
+  return H.length >= 2 && V.length >= 2 ? { H, V } : null;
+}
+
+// Contour du tableau déduit des lignes extrêmes -> quadrilatère (TL TR BR BL), ou null
+function quadOf(tg, w, h) {
+  const { H, V } = tg;
+  const top = H[0], bot = H.at(-1), left = V[0], right = V.at(-1);
+  const hit = (hl, vl) => { const x = (vl.a + vl.b * hl.a) / (1 - vl.b * hl.b); return { x, y: hl.a + hl.b * x }; };
+  const q = [hit(top, left), hit(top, right), hit(bot, right), hit(bot, left)];
+  const cx = q.reduce((a, p) => a + p.x, 0) / 4, cy = q.reduce((a, p) => a + p.y, 0) / 4, k = 1.025;
+  const out = q.map(p => ({ x: Math.max(0, Math.min(w - 1, cx + (p.x - cx) * k)), y: Math.max(0, Math.min(h - 1, cy + (p.y - cy) * k)) }));
+  const wd = Math.hypot(out[1].x - out[0].x, out[1].y - out[0].y), ht = Math.hypot(out[3].x - out[0].x, out[3].y - out[0].y);
+  return wd > w * 0.2 && ht > h * 0.2 ? out : null;
+}
+const gridOf = tg => ({ xs: tg.V.map(v => v.mid), ys: tg.H.map(t => t.mid) });
+
+// Analyse complète d'une image déjà cadrée : inclinaison, perspective, grille. Retourne { gray (normalisée), w, h, grid }
+export function analyze(gray0, w0, h0) {
+  const d = deskew(gray0, w0, h0);
+  const { w, h } = d;
+  const norm = normalize(d.gray, w, h), bin = binarize(norm);
+  const tg = trackGrid(bin, w, h);
+  if (!tg) return { gray: norm, w, h, grid: detectGrid(bin, w, h) }; // repli : détection par projections
+  const quad = quadOf(tg, w, h);
+  if (quad) {
+    const r = warp(d.gray, w, h, quad);
+    const n2 = normalize(r.gray, r.w, r.h), tg2 = trackGrid(binarize(n2), r.w, r.h);
+    if (tg2) return { gray: n2, w: r.w, h: r.h, grid: finish(gridOf(tg2)) };
+  }
+  return { gray: norm, w, h, grid: finish(gridOf(tg)) };
+}
+function finish(g) {
+  const xs = trimEdges(g.xs), ys = trimEdges(g.ys);
   return xs.length >= 2 && ys.length >= 2 ? { xs, ys } : null;
 }
 

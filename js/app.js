@@ -9,6 +9,8 @@ import * as scan from './scan.js';
 const app = document.getElementById('app');
 const titleEl = document.getElementById('title');
 const backBtn = document.getElementById('back');
+// app.append natif écrit « null » pour les valeurs vides : on les filtre
+const put = (...nodes) => app.append(...nodes.flat(Infinity).filter(n => n != null && n !== false));
 
 const PERIODS = [{ h: 6, label: '6 h' }, { h: 12, label: '12 h' }, { h: 24, label: '24 h' }, { h: 48, label: '48 h' }, { h: 0, label: 'Tout' }];
 
@@ -53,7 +55,7 @@ async function render() {
   for (const [re, fn] of routes) {
     const m = path.match(re);
     if (m) {
-      try { await fn(...m.slice(1)); } catch (err) { console.error(err); app.append(h('p', { class: 'error' }, 'Erreur : ' + err.message)); }
+      try { await fn(...m.slice(1)); } catch (err) { console.error(err); put(h('p', { class: 'error' }, 'Erreur : ' + err.message)); }
       return;
     }
   }
@@ -74,7 +76,7 @@ const confirmDo = (msg, fn) => { if (confirm(msg)) fn(); };
 async function homeView() {
   const patients = (await db.all('patients')).sort((a, b) => (b.updated || 0) - (a.updated || 0));
   const tpls = await allTemplates();
-  app.append(h('p', { class: 'lead' }, 'Fonctionne sans réseau. Les données restent sur cet appareil.'));
+  put(h('p', { class: 'lead' }, 'Fonctionne sans réseau. Les données restent sur cet appareil.'));
   const list = h('div', { class: 'cards' });
   for (const p of patients) {
     const entries = await db.entriesOf(p.id);
@@ -86,13 +88,13 @@ async function homeView() {
       h('small', {}, last ? `${entries.length} saisie(s) · dernière : ${fmtDate(last.ts)}` : 'Aucune saisie')));
   }
   if (!patients.length) list.append(h('p', { class: 'empty' }, 'Aucun patient. Créez une fiche pour commencer.'));
-  app.append(list,
+  put(list,
     link('#/new-patient', '＋ Nouveau patient', 'btn big'),
     h('div', { class: 'row' }, link('#/scan', '📷 Scanner une fiche papier', 'btn secondary'), link('#/templates', '📋 Modèles de fiches', 'btn secondary')),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & purge'),
       h('p', {}, 'Aucune donnée n’est envoyée à un serveur. Tout est stocké dans le navigateur de cet appareil.'),
       h('button', { class: 'btn danger', onclick: () => confirmDo('Supprimer DÉFINITIVEMENT tous les patients, saisies et fiches personnalisées de cet appareil ?', async () => { await db.purgeAll(); toast('Toutes les données ont été supprimées'); render(); }) }, 'Tout effacer')));
-  if (deferredInstall) app.append(h('button', { class: 'btn secondary', onclick: async () => { deferredInstall.prompt(); deferredInstall = null; } }, '⬇ Installer l’application'));
+  if (deferredInstall) put(h('button', { class: 'btn secondary', onclick: async () => { deferredInstall.prompt(); deferredInstall = null; } }, '⬇ Installer l’application'));
 }
 
 let deferredInstall;
@@ -118,7 +120,7 @@ async function newPatientView() {
     h('label', {}, 'Patient', name), h('label', {}, 'Service', service), h('label', {}, 'Fiche de suivi', sel), desc,
     h('button', { class: 'btn big', type: 'submit' }, 'Créer'),
     h('div', { class: 'row' }, link('#/compose', 'Composer une fiche', 'btn secondary'), link('#/scan', 'Scanner une fiche', 'btn secondary')));
-  app.append(form);
+  put(form);
 }
 
 async function patientView(pid) {
@@ -130,7 +132,7 @@ async function patientView(pid) {
   const recent = entries.sort((a, b) => b.ts - a.ts).slice(0, 5);
   const sel = h('select', { 'aria-label': 'Fiche de suivi', onchange: async e => { p.templateId = e.target.value; await db.put('patients', p); toast('Fiche changée'); render(); } },
     tpls.map(x => h('option', { value: x.id, selected: x.id === t.id }, x.name)));
-  app.append(
+  put(
     p.service ? h('p', { class: 'lead' }, p.service) : null,
     link(`#/p/${pid}/new`, '＋ Nouvelle saisie', 'btn big'),
     h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ QR code', 'btn secondary')),
@@ -168,7 +170,7 @@ async function entryView(pid, eid) {
     toast('Saisie enregistrée ✓');
     location.hash = `#/p/${pid}`;
   } }, 'Enregistrer');
-  app.append(
+  put(
     h('div', { class: 'whenbar' }, h('label', {}, existing ? 'Date / heure (modifiable)' : 'Date / heure de la tâche', when), now),
     shifts,
     buildForm(fields, values, lastValues(entries.filter(e => e.id !== existing?.id))),
@@ -188,7 +190,7 @@ async function tableView(pid) {
   const per = periodPicker(st.hours, v => { st.hours = v; draw(); });
   const hide = h('input', { type: 'checkbox', onchange: e => { st.hide = e.target.checked; draw(); } });
   draw();
-  app.append(per,
+  put(per,
     h('label', { class: 'check' }, hide, ' Masquer les colonnes vides'),
     h('p', { class: 'hint' }, 'Touchez ✎ (ou une ligne) pour corriger une saisie, y compris son heure.'),
     holder,
@@ -230,7 +232,7 @@ async function qrView(pid) {
       h('button', { class: 'btn secondary', disabled: st.i >= st.payloads.length - 1, onclick: () => { st.i++; draw(); } }, 'Suivant ›'));
   };
   const nameCb = h('input', { type: 'checkbox', checked: true, onchange: e => { st.name = e.target.checked; draw(); } });
-  app.append(periodPicker(st.hours, v => { st.hours = v; st.i = 0; draw(); }),
+  put(periodPicker(st.hours, v => { st.hours = v; st.i = 0; draw(); }),
     h('label', { class: 'check' }, nameCb, ' Inclure le nom du patient'),
     box, info, nav,
     h('p', { class: 'hint' }, 'Le soignant scanne le code avec n’importe quel lecteur : le bilan s’affiche en texte, sans connexion. Si plusieurs codes, les scanner dans l’ordre.'),
@@ -245,7 +247,7 @@ async function templatesView() {
   const card = t => h('div', { class: 'card' }, h('strong', {}, t.name), h('span', {}, t.desc || ''),
     h('small', {}, templateFields(t).map(f => f.label).join(' · ')),
     t.custom ? h('button', { class: 'btn danger small', onclick: () => confirmDo(`Supprimer la fiche « ${t.name} » ?`, async () => { await db.del('templates', t.id); render(); }) }, 'Supprimer') : null);
-  app.append(h('div', { class: 'row' }, link('#/compose', '＋ Composer une fiche', 'btn'), link('#/scan', '📷 Scanner une fiche', 'btn secondary')),
+  put(h('div', { class: 'row' }, link('#/compose', '＋ Composer une fiche', 'btn'), link('#/scan', '📷 Scanner une fiche', 'btn secondary')),
     h('h2', {}, 'Standards'), h('div', { class: 'cards' }, tpls.filter(t => !t.custom).map(card)),
     h('h2', {}, 'Mes fiches'), h('div', { class: 'cards' }, tpls.some(t => t.custom) ? tpls.filter(t => t.custom).map(card) : h('p', { class: 'empty' }, 'Aucune fiche personnalisée.')));
 }
@@ -262,7 +264,7 @@ async function composeView() {
     else for (let i = fields.length - 1; i >= 0; i--) if (fields[i].group === m.name && names.includes(fields[i].key)) fields.splice(i, 1);
     editor.refresh();
   } }, `${m.icon} ${m.name}`)));
-  app.append(h('label', {}, 'Nom', name), h('h2', {}, '1. Choisir des modules'), mods, h('h2', {}, '2. Ajuster les champs'), editor,
+  put(h('label', {}, 'Nom', name), h('h2', {}, '1. Choisir des modules'), mods, h('h2', {}, '2. Ajuster les champs'), editor,
     h('button', { class: 'btn big', onclick: async () => {
       if (!name.value.trim()) return name.focus();
       if (!fields.length) return toast('Ajoutez au moins un champ');
@@ -301,7 +303,7 @@ async function scanView() {
   const ocrState = h('small', { class: 'hint' }, 'Préparation de l’OCR hors-ligne…');
   scan.prefetchOcr(ok => { ocrState.textContent = ok ? '✓ OCR disponible hors-ligne' : '⚠ OCR non encore téléchargé : connectez-vous une fois pour l’activer. Vous pourrez toujours saisir les intitulés à la main.'; });
 
-  const busy = msg => { clear(app); app.append(h('p', { class: 'lead busy' }, msg)); };
+  const busy = msg => { clear(app); put(h('p', { class: 'lead busy' }, msg)); };
 
   const step1 = () => {
     clear(app);
@@ -313,7 +315,7 @@ async function scanView() {
       S.quad = scan.guessQuad(S.src.gray, S.src.w, S.src.h);
       step2();
     } });
-    app.append(h('p', { class: 'lead' }, 'Photographiez la fiche papier vierge du service, bien à plat et éclairée. L’application en recrée une version numérique.'),
+    put(h('p', { class: 'lead' }, 'Photographiez la fiche papier vierge du service, bien à plat et éclairée. L’application en recrée une version numérique.'),
       input, h('label', { class: 'btn big', for: 'photo' }, '📷 Prendre / choisir une photo'),
       ocrState,
       h('button', { class: 'btn secondary', onclick: () => { S.fields = []; step4(); } }, 'Saisir les intitulés à la main'));
@@ -321,7 +323,7 @@ async function scanView() {
 
   const step2 = () => {
     clear(app);
-    app.append(h('p', { class: 'lead' }, 'Déplacez les 4 coins orange sur les angles du tableau.'),
+    put(h('p', { class: 'lead' }, 'Déplacez les 4 coins orange sur les angles du tableau.'),
       quadEditor(S.srcCanvas, S.quad),
       h('div', { class: 'row' }, h('button', { class: 'btn secondary', onclick: step1 }, 'Autre photo'),
         h('button', { class: 'btn', onclick: () => { busy('Redressement et analyse du tableau…'); setTimeout(step3, 30); } }, 'Redresser et analyser')));
@@ -329,10 +331,8 @@ async function scanView() {
 
   const step3 = () => {
     const flat = scan.warp(S.src.gray, S.src.w, S.src.h, S.quad);
-    const warped = scan.deskew(flat.gray, flat.w, flat.h);
-    S.w = warped.w; S.h = warped.h;
-    S.norm = scan.normalize(warped.gray, warped.w, warped.h);
-    S.grid = scan.detectGrid(scan.binarize(S.norm), S.w, S.h);
+    const res = scan.analyze(flat.gray, flat.w, flat.h);
+    S.w = res.w; S.h = res.h; S.norm = res.gray; S.grid = res.grid;
     clear(app);
     const cv = scan.grayToCanvas(S.norm, S.w, S.h); cv.className = 'preview';
     if (S.grid) {
@@ -344,7 +344,7 @@ async function scanView() {
     const mode = h('select', { 'aria-label': 'Position des intitulés', onchange: e => { S.mode = e.target.value; } },
       h('option', { value: 'row', selected: S.mode === 'row' }, 'Intitulés sur la 1re ligne (colonnes = paramètres)'),
       h('option', { value: 'col', selected: S.mode === 'col' }, 'Intitulés sur la 1re colonne (lignes = paramètres)'));
-    app.append(cv,
+    put(cv,
       S.grid ? h('p', { class: 'lead' }, `Tableau détecté : ${S.grid.xs.length - 1} colonnes × ${S.grid.ys.length - 1} lignes.`) : h('p', { class: 'error' }, 'Aucune grille détectée. Réajustez le cadrage ou saisissez les intitulés à la main.'),
       S.grid ? h('label', {}, 'Intitulés', mode) : null,
       h('div', { class: 'row' }, h('button', { class: 'btn secondary', onclick: step2 }, '‹ Cadrage'),
@@ -354,7 +354,7 @@ async function scanView() {
   const runOcr = async () => {
     const cells = scan.headerCells(S.grid, S.mode);
     busy('Lecture des intitulés…');
-    const bar = h('progress', { max: cells.length, value: 0 }); app.append(bar);
+    const bar = h('progress', { max: cells.length, value: 0 }); put(bar);
     let labels;
     try { labels = await scan.ocrCells(S.norm, S.w, cells, i => { bar.value = i; }); }
     catch (err) { toast(err.message); labels = cells.map(() => ''); }
@@ -365,7 +365,7 @@ async function scanView() {
   const step4 = () => {
     clear(app);
     const name = h('input', { type: 'text', placeholder: 'Nom de la fiche (ex : Service X – surveillance)', value: S.name, 'aria-label': 'Nom de la fiche', oninput: e => { S.name = e.target.value; } });
-    app.append(
+    put(
       h('p', { class: 'lead' }, 'Vérifiez les colonnes lues : corrigez l’intitulé et le type de saisie. La date/heure est ajoutée automatiquement.'),
       h('label', {}, 'Nom de la fiche', name),
       fieldsEditor(S.fields),
