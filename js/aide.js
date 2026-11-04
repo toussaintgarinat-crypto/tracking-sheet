@@ -28,7 +28,7 @@ export const QUICK_DRIVE = {
 export const SECTIONS = [
   { id: 'start', icon: '🚀', title: 'Démarrer', items: [
     'L’application est une PWA : elle s’installe sur l’écran d’accueil (iPhone : Safari → Partager → Sur l’écran d’accueil ; Android : Chrome → menu ⋮ → Installer l’application) et fonctionne sans réseau.',
-    'Deux modes, au sommet de l’accueil : « 🧑 Patient » pour saisir son suivi, « 🩺 Corps médical » pour suivre plusieurs patients et recevoir des bilans.',
+    'Trois modes, au sommet de l’accueil : « 🧑 Patient » pour saisir son suivi ; « 🏠 Libéral » pour un professionnel de cabinet qui suit ses patients (tableau de suivi, dossiers partagés Drive ou QR) ; « 🩺 Hôpital » pour suivre des patients et recevoir des bilans en service.',
     'Vos données restent sur l’appareil. Seuls les dossiers que vous choisissez de partager (Drive ou QR) en sortent.',
     'Partout, « ‹ Retour » remonte d’un niveau et « 🏠 Menu principal » ramène à l’accueil.',
   ] },

@@ -67,7 +67,7 @@ const routes = [
 ];
 
 let stopCamera = null;
-const getMode = () => { try { return localStorage.getItem('mode') === 'medical' ? 'medical' : 'patient'; } catch { return 'patient'; } };
+const getMode = () => { try { const m = localStorage.getItem('mode'); return m === 'medical' || m === 'liberal' ? m : 'patient'; } catch { return 'patient'; } };
 const setMode = m => { try { localStorage.setItem('mode', m); } catch { /* ignoré */ } render(); };
 
 // Rappel : des données ont changé depuis la dernière sauvegarde
@@ -85,7 +85,8 @@ function modeSwitch() {
   const cur = getMode();
   return h('div', { class: 'modes', role: 'group', 'aria-label': 'Mode' },
     h('button', { type: 'button', class: 'opt' + (cur === 'patient' ? ' on' : ''), 'aria-pressed': cur === 'patient', onclick: () => setMode('patient') }, '🧑 Patient'),
-    h('button', { type: 'button', class: 'opt' + (cur === 'medical' ? ' on' : ''), 'aria-pressed': cur === 'medical', onclick: () => setMode('medical') }, '🩺 Corps médical'));
+    h('button', { type: 'button', class: 'opt' + (cur === 'liberal' ? ' on' : ''), 'aria-pressed': cur === 'liberal', onclick: () => setMode('liberal') }, '🏠 Libéral'),
+    h('button', { type: 'button', class: 'opt' + (cur === 'medical' ? ' on' : ''), 'aria-pressed': cur === 'medical', onclick: () => setMode('medical') }, '🩺 Hôpital'));
 }
 
 async function render() {
@@ -129,6 +130,7 @@ const confirmDo = (msg, fn) => { if (confirm(msg)) fn(); };
 async function homeView() {
   put(modeSwitch(), backupBanner());
   if (getMode() === 'medical') return medicalHome();
+  if (getMode() === 'liberal') return liberalHome();
   setHeader('Suivi hospitalier · Patient', false);
   const patients = (await db.all('patients')).sort((a, b) => (b.updated || 0) - (a.updated || 0));
   const tpls = await allTemplates();
@@ -469,6 +471,30 @@ async function scanView() {
       } }, 'Créer la fiche numérique'));
   };
   step1();
+}
+
+// ---------- Mode libéral : suivi de ses patients en cabinet (dossiers partagés Drive ou QR) ----------
+async function liberalHome() {
+  setHeader('Suivi · Libéral', false);
+  const patients = (await db.all('patients')).sort((a, b) => a.name.localeCompare(b.name));
+  const shared = patients.filter(p => p.share);
+  let late = 0, ask = 0;
+  for (const p of shared) {
+    const es = await db.allEntriesOf(p.id), last = Math.max(0, ...es.map(e => e.ts));
+    if (lateness(last, p.alertHours || 6).lvl >= 1 || (await breaches(p, es)).length) late++;
+    const th = await sync.thread(p); if (th.pending) ask++;
+  }
+  const list = h('div', { class: 'cards' }, patients.map(p => h('a', { class: 'card patient', href: `#/p/${p.id}` },
+    h('strong', {}, p.name), h('span', {}, p.share ? `👥 ${sync.ROLES[p.share.role].label}${p.share.folder ? ' · Drive' : ' · QR'}` : 'Dossier local'))));
+  if (!patients.length) list.append(h('p', { class: 'empty' }, 'Aucun patient. Créez-en un, ou scannez le QR d’un patient pour le suivre.'));
+  put(h('p', { class: 'lead' }, 'Suivez vos patients entre les séances : ils saisissent, vous voyez tout dans un tableau. Via Drive, ou par QR sans réseau.'),
+    shared.length ? h('a', { class: 'banner info', href: '#/suivi' }, h('strong', {}, late ? `📊 ${late} patient(s) à regarder` : '📊 Tous vos patients sont à jour'), h('span', {}, ask ? `${ask} demande(s) de nouvelles en attente. Touchez pour ouvrir le tableau de suivi.` : 'Touchez pour ouvrir le tableau de suivi.')) : null,
+    link('#/suivi', '📊 Tableau de suivi de mes patients', 'btn big'),
+    h('div', { class: 'row' }, link('#/scansync', '📷 Suivre un patient (scanner son QR)', 'btn secondary'), link('#/new-patient', '＋ Nouveau patient', 'btn secondary')),
+    h('h2', {}, 'Mes patients'), list,
+    dossiersLink(), backupLink(), aideLink(),
+    link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
+    h('p', { class: 'hint' }, 'Application d’aide au suivi : elle ne remplace pas votre dossier patient. Données de santé réelles : vérifiez l’hébergement (HDS) avant d’utiliser Drive.'));
 }
 
 // ---------- Mode corps médical : réception des bilans ----------

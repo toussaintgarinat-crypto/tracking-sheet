@@ -24,12 +24,13 @@ d'accueil) et Android (Chrome).
 | 3 – Modèles | 6 modules (constantes, alimentation/transit, douleur, traitements, biométrie, maternité) ; 7 modèles : Général, Pédiatrie, Maternité/Néonat., Chirurgie, Gériatrie, Oncologie, Soins continus ; composition libre | `js/modules.js` |
 | 4 – QR & export | QR « data-embedded » (JSON compact UTF-8, découpé en plusieurs codes autonomes, période 6/12/24/48 h ou tout), tableau chronologique, impression / PDF (A4 paysage) | `js/export.js`, `js/qr.js` |
 
-## Deux modes : patient et corps médical
+## Trois modes : patient, libéral, hôpital
 
 Sélecteur en haut de l'accueil (mémorisé sur l'appareil).
 
 - **Patient** : saisie, tableau, PDF, et **Transmettre au soignant** (QR codes du bilan).
-- **Corps médical** : **Recevoir un bilan** scanne les QR avec la caméra (ou « Photo du QR », ou « Coller le texte »).
+- **Libéral** : accueil du professionnel de cabinet : bannière « patients à regarder », tableau de suivi, suivre un patient par QR, dossiers partagés (Drive ou QR).
+- **Hôpital (corps médical)** : **Recevoir un bilan** scanne les QR avec la caméra (ou « Photo du QR », ou « Coller le texte »).
   Un bilan en plusieurs codes se reconstitue dans n'importe quel ordre ; les doublons sont ignorés ; les bilans
   reçus sont conservés sur l'appareil du soignant (liste, tableau, PDF, suppression). Un bilan sans nom n'est
   jamais fusionné avec un autre. Lecteur QR : `vendor/jsQR.js`, hors-ligne.

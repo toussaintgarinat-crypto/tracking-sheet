@@ -169,3 +169,5 @@ textarea.note { font: inherit; padding: .6rem .8rem; border: 2px solid var(--lin
 .ltitle { font-size: 1.6rem; font-weight: 800; text-align: center; }
 .lnote { margin: 0; color: var(--muted); font-size: .9rem; text-align: center; }
 @media print { body.plabel main > *:not(.label-print) { display: none !important; } body.plabel .label-print { border: 0; } body.plabel .ltitle { color: #000; font-size: 28pt; } body.plabel .lnote { color: #000; } body.plabel .qr { width: 14cm; max-width: 100%; } }
+
+.modes .opt { padding: 0 .4rem; font-size: .95rem; }
