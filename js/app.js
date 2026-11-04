@@ -45,6 +45,7 @@ const routes = [
   [/^templates$/, templatesView],
   [/^compose$/, composeView],
   [/^scan$/, scanView],
+  [/^share$/, shareView],
 ];
 
 async function render() {
@@ -91,6 +92,7 @@ async function homeView() {
   put(list,
     link('#/new-patient', '＋ Nouveau patient', 'btn big'),
     h('div', { class: 'row' }, link('#/scan', '📷 Scanner une fiche papier', 'btn secondary'), link('#/templates', '📋 Modèles de fiches', 'btn secondary')),
+    link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & purge'),
       h('p', {}, 'Aucune donnée n’est envoyée à un serveur. Tout est stocké dans le navigateur de cet appareil.'),
       h('button', { class: 'btn danger', onclick: () => confirmDo('Supprimer DÉFINITIVEMENT tous les patients, saisies et fiches personnalisées de cet appareil ?', async () => { await db.purgeAll(); toast('Toutes les données ont été supprimées'); render(); }) }, 'Tout effacer')));
@@ -405,6 +407,24 @@ async function scanView() {
       } }, 'Créer la fiche numérique'));
   };
   step1();
+}
+
+// ---------- Partage de l'application par QR code ----------
+function shareView() {
+  setHeader('Partager l’application', true);
+  const url = location.href.split('#')[0].replace(/index\.html$/, '');
+  const wrap = h('div', { class: 'qr' }); wrap.innerHTML = qrSvg(url, { ecc: 'M' }); // SVG généré localement
+  put(h('p', { class: 'lead' }, 'Faites scanner ce code avec l’appareil photo du téléphone : il ouvre l’application. À faire une fois avec du réseau ; ensuite elle fonctionne sans connexion.'),
+    h('div', { class: 'qrbox' }, wrap),
+    h('p', { class: 'raw' }, url),
+    h('ol', { class: 'steps' },
+      h('li', {}, 'iPhone : ouvrir dans Safari, puis Partager → Sur l’écran d’accueil.'),
+      h('li', {}, 'Android : ouvrir dans Chrome, puis menu ⋮ → Installer l’application.'),
+      h('li', {}, 'Ouvrir l’application installée, puis Scanner une fiche pour télécharger l’OCR (Wi-Fi conseillé, ~14 Mo).')),
+    h('button', { class: 'btn secondary', onclick: async () => {
+      try { if (navigator.share) { await navigator.share({ url, title: 'Suivi hospitalier' }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+      try { await navigator.clipboard.writeText(url); toast('Lien copié'); } catch { toast('Copie impossible'); }
+    } }, '↗ Partager le lien'));
 }
 
 // ---------- Démarrage ----------
