@@ -9,6 +9,7 @@ import * as rx from './receive.js';
 import * as bk from './backup.js';
 import * as sync from './sync.js';
 import * as qs from './qrsync.js';
+import { QUICK, SECTIONS } from './aide.js';
 import { setClientId, hasClientId, hasToken } from './drive.js';
 
 const app = document.getElementById('app');
@@ -52,6 +53,7 @@ const routes = [
   [/^scan$/, scanView],
   [/^share$/, shareView],
   [/^dossiers$/, dossiersView],
+  [/^aide$/, aideView],
   [/^suivi$/, suiviView],
   [/^scansync$/, scanSyncView],
   [/^p\/([^/]+)\/qrsync$/, qrSyncView],
@@ -74,6 +76,7 @@ function backupBanner() {
   const when = lastBackup ? `dernière sauvegarde le ${fmtDateLong(lastBackup)}` : 'aucune sauvegarde pour l’instant';
   return h('a', { class: 'banner', href: '#/backup' }, h('strong', {}, '⚠ Données non sauvegardées'), h('span', {}, `${when}. Touchez pour sauvegarder.`));
 }
+const aideLink = () => link('#/aide', '❓ Aide & guide d’utilisation', 'btn secondary');
 const dossiersLink = () => link('#/dossiers', '👥 Dossiers partagés', 'btn secondary');
 const backupLink = () => link('#/backup', '💾 Sauvegarde & restauration', 'btn secondary');
 
@@ -142,7 +145,7 @@ async function homeView() {
   put(list,
     link('#/new-patient', '＋ Nouveau patient', 'btn big'),
     h('div', { class: 'row' }, link('#/scan', '📷 Scanner une fiche papier', 'btn secondary'), link('#/templates', '📋 Modèles de fiches', 'btn secondary')),
-    dossiersLink(), backupLink(),
+    dossiersLink(), backupLink(), aideLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & purge'),
       h('p', {}, 'Rien n’est envoyé à un serveur, sauf les dossiers que vous choisissez de partager (Google Drive). Le reste est stocké dans le navigateur de cet appareil.'),
@@ -478,7 +481,7 @@ async function medicalHome() {
     link('#/suivi', '📊 Tableau de suivi des patients', 'btn big'),
     link('#/receive', '📥 Recevoir un bilan (scanner)', 'btn secondary'),
     h('h2', {}, 'Bilans reçus'), list,
-    dossiersLink(), backupLink(),
+    dossiersLink(), backupLink(), aideLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     recs.length ? h('details', { class: 'danger-zone' }, h('summary', {}, 'Purge'),
       h('button', { class: 'btn danger', onclick: () => confirmDo('Supprimer DÉFINITIVEMENT tous les bilans reçus sur cet appareil ?', async () => { await db.purgeReceived(); toast('Bilans supprimés'); render(); }) }, 'Effacer tous les bilans reçus')) : null);
@@ -613,6 +616,18 @@ async function backupView() {
       h('p', { class: 'hint' }, 'Choisissez un fichier de sauvegarde (depuis Drive, Fichiers, une clé USB…).'),
       input, h('label', { class: 'btn secondary', for: 'bk-file' }, '📂 Choisir un fichier de sauvegarde'),
       info, rpassWrap, readBtn, h('label', {}, 'Mode', modeSel), goBtn));
+}
+
+// ---------- Aide / guide d'utilisation ----------
+function aideView() {
+  setHeader('Aide & guide', true);
+  const list = items => h('ul', { class: 'guide' }, items.map(t => h('li', {}, t)));
+  const sec = (x, open) => h('details', { class: 'gsec', open, id: 'g-' + x.id }, h('summary', {}, `${x.icon} ${x.title}`), list(x.items));
+  put(h('p', { class: 'lead' }, 'Tout ce qu’il faut savoir pour utiliser l’application, même sans réseau.'),
+    h('div', { class: 'card quick' }, h('h2', {}, '⚡ ' + QUICK.title), h('p', { class: 'hint' }, QUICK.intro),
+      h('ol', { class: 'steps' }, QUICK.steps.map(t => h('li', {}, t))), h('p', { class: 'hint' }, '💡 ' + QUICK.tip)),
+    h('div', { class: 'cards' }, SECTIONS.map((x, i) => sec(x, i === 0))),
+    h('button', { class: 'btn secondary', type: 'button', onclick: () => { document.querySelectorAll('.gsec').forEach(d => { d.open = true; }); window.print(); } }, '🖨 Imprimer le guide'));
 }
 
 // ---------- Tableau de suivi multi-patients (corps médical) ----------

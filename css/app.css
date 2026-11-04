@@ -157,3 +157,10 @@ input[type=password] { font: inherit; min-height: var(--tap); padding: .5rem .8r
 label.inline { flex-direction: row; align-items: center; gap: .5rem; font-weight: 500; }
 label.inline select { min-height: 44px; width: auto; }
 textarea.note { font: inherit; padding: .6rem .8rem; border: 2px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--fg); width: 100%; }
+
+.guide { margin: .4rem 0 .2rem; padding-left: 1.2rem; display: grid; gap: .55rem; }
+.gsec { background: var(--card); border: 2px solid var(--line); border-radius: var(--radius); padding: .2rem 1rem .6rem; }
+.gsec summary { cursor: pointer; min-height: 48px; display: flex; align-items: center; font-weight: 700; font-size: 1.05rem; }
+.card.quick { border-color: var(--accent); }
+.steps li { margin-bottom: .5rem; }
+@media print { .top, .navbar, .btn, .banner, .back { display: none !important; } body { background: #fff; color: #000; font-size: 12pt; } main { max-width: none; } .gsec, .card { border-color: #999; break-inside: avoid; } }

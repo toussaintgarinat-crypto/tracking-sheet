@@ -87,6 +87,11 @@ chacun montre SA section (saisies + messages), l'autre appareil la range en lect
 - Compatible avec Drive : un dossier peut recevoir des sections par QR **et** par Drive (Drive prime pour un même membre).
 - Limite : l'invitation n'est pas chiffrée (elle contient le nom du patient) : à montrer en personne.
 
+## Aide intégrée
+
+Menu → **❓ Aide & guide d'utilisation** (`#/aide`, `js/aide.js`) : guide express « Partage sans réseau en 5 étapes » puis rubriques
+(démarrer, saisie, export, fiches, corps médical, Drive, messages, sauvegarde, sécurité, dépannage). Hors-ligne, imprimable.
+
 ## Format du QR code
 
 Chaque code est un JSON autonome lisible par n'importe quel lecteur :
