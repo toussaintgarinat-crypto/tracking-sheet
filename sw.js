@@ -1,10 +1,10 @@
 // Service worker : offline-first. Coque applicative pré-cachée ; fichiers OCR mis en cache à la première utilisation.
-const VERSION = 'v6';
+const VERSION = 'v7';
 const SHELL = `shell-${VERSION}`;
 const HEAVY = `vendor-${VERSION}`;
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
-  'js/app.js', 'js/dom.js', 'js/db.js', 'js/modules.js', 'js/engine.js', 'js/export.js', 'js/qr.js', 'js/scan.js', 'js/pdf.js',
+  'js/app.js', 'js/dom.js', 'js/db.js', 'js/modules.js', 'js/engine.js', 'js/export.js', 'js/qr.js', 'js/scan.js', 'js/pdf.js', 'js/receive.js', 'vendor/jsQR.js',
   'vendor/qrcode.mjs', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
 ];
 

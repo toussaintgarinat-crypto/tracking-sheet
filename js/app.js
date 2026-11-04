@@ -5,6 +5,7 @@ import { buildForm, fieldsEditor } from './engine.js';
 import { filterPeriod, buildTable, qrPayloads, printSheet, exportPdf } from './export.js';
 import { qrSvg } from './qr.js';
 import * as scan from './scan.js';
+import * as rx from './receive.js';
 
 const app = document.getElementById('app');
 const titleEl = document.getElementById('title');
@@ -46,9 +47,23 @@ const routes = [
   [/^compose$/, composeView],
   [/^scan$/, scanView],
   [/^share$/, shareView],
+  [/^receive$/, receiveView],
+  [/^r\/(.+)$/, receivedView],
 ];
 
+let stopCamera = null;
+const getMode = () => { try { return localStorage.getItem('mode') === 'medical' ? 'medical' : 'patient'; } catch { return 'patient'; } };
+const setMode = m => { try { localStorage.setItem('mode', m); } catch { /* ignoré */ } render(); };
+
+function modeSwitch() {
+  const cur = getMode();
+  return h('div', { class: 'modes', role: 'group', 'aria-label': 'Mode' },
+    h('button', { type: 'button', class: 'opt' + (cur === 'patient' ? ' on' : ''), 'aria-pressed': cur === 'patient', onclick: () => setMode('patient') }, '🧑 Patient'),
+    h('button', { type: 'button', class: 'opt' + (cur === 'medical' ? ' on' : ''), 'aria-pressed': cur === 'medical', onclick: () => setMode('medical') }, '🩺 Corps médical'));
+}
+
 async function render() {
+  if (stopCamera) { stopCamera(); stopCamera = null; }
   const path = location.hash.replace(/^#\/?/, '');
   clear(app);
   setHeader('Suivi hospitalier', false);
@@ -75,6 +90,9 @@ const confirmDo = (msg, fn) => { if (confirm(msg)) fn(); };
 
 // ---------- Accueil / patients ----------
 async function homeView() {
+  put(modeSwitch());
+  if (getMode() === 'medical') return medicalHome();
+  setHeader('Suivi hospitalier · Patient', false);
   const patients = (await db.all('patients')).sort((a, b) => (b.updated || 0) - (a.updated || 0));
   const tpls = await allTemplates();
   put(h('p', { class: 'lead' }, 'Fonctionne sans réseau. Les données restent sur cet appareil.'));
@@ -137,7 +155,7 @@ async function patientView(pid) {
   put(
     p.service ? h('p', { class: 'lead' }, p.service) : null,
     link(`#/p/${pid}/new`, '＋ Nouvelle saisie', 'btn big'),
-    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ QR code', 'btn secondary')),
+    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary')),
     h('label', {}, 'Fiche de suivi', sel),
     pdfBox(p, t, fields, entries),
     h('h2', {}, 'Dernières saisies'),
@@ -407,6 +425,99 @@ async function scanView() {
       } }, 'Créer la fiche numérique'));
   };
   step1();
+}
+
+// ---------- Mode corps médical : réception des bilans ----------
+async function medicalHome() {
+  setHeader('Suivi hospitalier · Corps médical', false);
+  const recs = (await db.all('received')).sort((x, y) => y.updated - x.updated);
+  const list = h('div', { class: 'cards' }, recs.map(r => h('a', { class: 'card patient', href: `#/r/${encodeURIComponent(r.id)}` },
+    h('strong', {}, r.name), h('span', {}, r.template),
+    h('small', {}, `${r.rows.length} saisie(s) · reçu le ${fmtDateLong(r.updated)}`))));
+  if (!recs.length) list.append(h('p', { class: 'empty' }, 'Aucun bilan reçu. Scannez le QR code affiché sur le téléphone du patient.'));
+  put(h('p', { class: 'lead' }, 'Recevez les bilans transmis par les patients (QR code), sans réseau. Les données restent sur cet appareil.'),
+    link('#/receive', '📥 Recevoir un bilan (scanner)', 'btn big'),
+    h('h2', {}, 'Bilans reçus'), list,
+    link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
+    recs.length ? h('details', { class: 'danger-zone' }, h('summary', {}, 'Purge'),
+      h('button', { class: 'btn danger', onclick: () => confirmDo('Supprimer DÉFINITIVEMENT tous les bilans reçus sur cet appareil ?', async () => { await db.purgeReceived(); toast('Bilans supprimés'); render(); }) }, 'Effacer tous les bilans reçus')) : null);
+}
+
+function receiveView() {
+  setHeader('Recevoir un bilan', true);
+  const session = new rx.Session();
+  const video = h('video', { class: 'cam', playsinline: '', muted: '' });
+  const status = h('p', { class: 'lead' }, 'Cadrez le QR code affiché sur le téléphone du patient.');
+  const chips = h('div', { class: 'chips parts' });
+  const finishBtn = h('button', { class: 'btn', disabled: true, onclick: () => finish() }, '✓ Terminer et enregistrer');
+  let lastBad = '', done = false;
+
+  const refresh = () => {
+    chips.replaceChildren(...(session.total > 1 ? Array.from({ length: session.total }, (_, i) =>
+      h('span', { class: 'chip' + (session.parts.has(i + 1) ? ' last' : '') }, `${session.parts.has(i + 1) ? '✓' : '·'} ${i + 1}`)) : []));
+    finishBtn.disabled = session.count === 0;
+    status.textContent = session.total > 1 ? `Codes reçus : ${session.count} / ${session.total}. Scannez les suivants (dans n’importe quel ordre).` : 'Cadrez le QR code affiché sur le téléphone du patient.';
+  };
+  async function finish() {
+    if (done || !session.count) return;
+    done = true; if (stopCamera) { stopCamera(); stopCamera = null; }
+    const id = await rx.saveReceived(session);
+    if (navigator.vibrate) navigator.vibrate(80);
+    toast(session.complete ? 'Bilan reçu ✓' : `Bilan enregistré (${session.count}/${session.total} codes)`);
+    location.hash = `#/r/${encodeURIComponent(id)}`;
+  }
+  const handle = text => {
+    if (done) return;
+    const list = rx.parseMany(text);
+    if (!list.length) { if (text !== lastBad) { lastBad = text; toast('Ce code n’est pas un bilan de suivi'); } return; }
+    for (const j of list) {
+      const r = session.add(j);
+      if (r === 'other' && text !== lastBad) { lastBad = text; toast('Code d’un autre patient : terminez d’abord ce bilan'); }
+      if (r === 'ok' && navigator.vibrate) navigator.vibrate(40);
+    }
+    refresh();
+    if (session.complete) finish();
+  };
+  const file = h('input', { type: 'file', accept: 'image/*', hidden: true, id: 'qr-photo', onchange: async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try { const t = await rx.decodeImageFile(f); t ? handle(t) : toast('Aucun QR code lisible sur cette photo'); } catch { toast('Image illisible'); }
+  } });
+  const pasteBox = h('textarea', { rows: 4, placeholder: 'Collez ici le texte du bilan (partagé par le patient)', 'aria-label': 'Texte du bilan' });
+  const pasteWrap = h('div', { class: 'stack', hidden: true }, pasteBox,
+    h('button', { class: 'btn secondary', onclick: () => { handle(pasteBox.value); pasteBox.value = ''; } }, 'Importer ce texte'));
+  put(video, status, chips,
+    h('div', { class: 'row' }, h('label', { class: 'btn secondary', for: 'qr-photo' }, '🖼 Photo du QR'), file,
+      h('button', { class: 'btn secondary', onclick: () => { pasteWrap.hidden = !pasteWrap.hidden; } }, '📋 Coller le texte'), finishBtn),
+    pasteWrap);
+  refresh();
+  if (!navigator.mediaDevices?.getUserMedia) { video.hidden = true; status.textContent = 'Caméra indisponible : utilisez « Photo du QR » ou « Coller le texte ».'; return; }
+  rx.startScanner(video, handle, err => {
+    video.hidden = true;
+    status.textContent = err?.name === 'NotAllowedError' ? 'Accès à la caméra refusé : autorisez-le dans les réglages, ou utilisez « Photo du QR ».' : 'Caméra indisponible : utilisez « Photo du QR » ou « Coller le texte ».';
+  }).then(stop => { if (done) stop(); else stopCamera = stop; });
+}
+
+async function receivedView(rawId) {
+  const id = decodeURIComponent(rawId);
+  const rec = await db.get('received', id);
+  if (!rec) { location.hash = '#/'; return; }
+  setHeader(rec.name, true);
+  const fields = rx.receivedFields(rec), all = rx.receivedEntries(rec);
+  const st = { hours: 0, hide: true };
+  const holder = h('div');
+  const draw = () => { holder.replaceChildren(buildTable(fields, filterPeriod(all, st.hours), { hideEmpty: st.hide })); };
+  const label = () => PERIODS.find(x => x.h === st.hours).label;
+  const hide = h('input', { type: 'checkbox', checked: true, onchange: e => { st.hide = e.target.checked; draw(); } });
+  draw();
+  put(h('p', { class: 'lead' }, `${rec.template} · ${rec.rows.length} saisie(s)${rec.generated ? ' · bilan du ' + rec.generated + ' (UTC)' : ''}`),
+    periodPicker(st.hours, v => { st.hours = v; draw(); }),
+    h('label', { class: 'check' }, hide, ' Masquer les colonnes vides'),
+    holder,
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', onclick: async () => { const r = await exportPdf({ name: rec.name, service: '' }, { name: rec.template }, st.hide ? fields.filter(f => filterPeriod(all, st.hours).some(e => e.values[f.key] != null)) : fields, filterPeriod(all, st.hours), label()); if (r === 'downloaded') toast('PDF enregistré'); } }, '📄 Exporter en PDF'),
+      link('#/receive', '📥 Recevoir d’autres codes', 'btn secondary')),
+    h('details', { class: 'danger-zone' }, h('summary', {}, 'Supprimer ce bilan'),
+      h('button', { class: 'btn danger', onclick: () => confirmDo(`Supprimer définitivement le bilan de ${rec.name} de cet appareil ?`, async () => { await db.del('received', id); toast('Bilan supprimé'); location.hash = '#/'; }) }, 'Supprimer ce bilan')));
 }
 
 // ---------- Partage de l'application par QR code ----------
