@@ -23,12 +23,14 @@ export function buildTable(fields, entries, { hideEmpty = false, onRow } = {}) {
   const thead = h('thead', {},
     showGroups ? h('tr', { class: 'grp' }, h('th', {}), groups.map(g => h('th', { colspan: g.span }, g.name))) : null,
     h('tr', {}, h('th', { class: 'time' }, 'Date / heure'),
-      cols.map(f => h('th', {}, f.label, f.unit ? h('small', {}, ` ${f.unit}`) : null))));
+      cols.map(f => h('th', {}, f.label, f.unit ? h('small', {}, ` ${f.unit}`) : null)),
+      onRow ? h('th', { class: 'edit' }, '') : null));
   const tbody = h('tbody', {}, entries.map(e =>
     h('tr', { onclick: onRow ? () => onRow(e) : null, tabindex: onRow ? 0 : null },
       h('th', { class: 'time', scope: 'row' }, fmtDate(e.ts)),
-      cols.map(f => h('td', {}, fmtValue(f, e.values[f.key]))))));
-  if (!entries.length) tbody.append(h('tr', {}, h('td', { colspan: cols.length + 1, class: 'empty' }, 'Aucune saisie sur cette période')));
+      cols.map(f => h('td', {}, fmtValue(f, e.values[f.key]))),
+      onRow ? h('td', { class: 'edit' }, h('button', { type: 'button', class: 'mini', 'aria-label': `Modifier la saisie du ${fmtDate(e.ts)} (heure comprise)`, onclick: ev => { ev.stopPropagation(); onRow(e); } }, '✎')) : null)));
+  if (!entries.length) tbody.append(h('tr', {}, h('td', { colspan: cols.length + (onRow ? 2 : 1), class: 'empty' }, 'Aucune saisie sur cette période')));
   return h('div', { class: 'table-wrap' }, h('table', { class: 'grid' }, thead, tbody));
 }
 

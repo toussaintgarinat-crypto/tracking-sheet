@@ -125,3 +125,6 @@ canvas.quad, canvas.preview { width: 100%; height: auto; touch-action: none; bor
   #print-sheet tr { break-inside: avoid; }
   #print-sheet thead { display: table-header-group; }
 }
+
+.grid th.edit, .grid td.edit { position: sticky; right: 0; background: var(--bg); padding: .2rem; }
+.shifts { margin-top: -.25rem; }

@@ -137,7 +137,7 @@ async function patientView(pid) {
     h('label', {}, 'Fiche de suivi', sel),
     h('h2', {}, 'Dernières saisies'),
     recent.length ? h('ul', { class: 'recent' }, recent.map(e => h('li', {}, h('a', { href: `#/p/${pid}/new/${e.id}` },
-      h('b', {}, fmtDate(e.ts)), ' ',
+      h('b', {}, fmtDate(e.ts)), ' ✎ ',
       fields.filter(f => e.values[f.key] != null).slice(0, 4).map(f => `${f.short || f.label} ${fmtValue(f, e.values[f.key])}`).join(' · '))))) : h('p', { class: 'empty' }, 'Aucune saisie.'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Sortie d’hospitalisation / purge'),
       h('button', { class: 'btn danger', onclick: () => confirmDo(`Supprimer définitivement ${p.name} et tout son historique (${entries.length} saisie(s)) ?`, async () => { await db.purgePatient(pid); toast('Patient supprimé'); location.hash = '#/'; }) }, 'Supprimer ce patient et son historique')));
@@ -155,6 +155,11 @@ async function entryView(pid, eid) {
   const values = { ...(existing?.values || {}) };
   const when = h('input', { type: 'datetime-local', value: toLocalInput(existing?.ts || Date.now()), 'aria-label': 'Date et heure' });
   const now = h('button', { type: 'button', class: 'btn secondary small', onclick: () => { when.value = toLocalInput(Date.now()); } }, 'Maintenant');
+  // décalage rapide : le patient a oublié de saisir au moment de la tâche
+  const shift = min => { const base = new Date(when.value).getTime() || Date.now(); when.value = toLocalInput(base + min * 60000); };
+  const shifts = h('div', { class: 'chips shifts', role: 'group', 'aria-label': 'Décaler l’heure' },
+    [[-15, '−15 min'], [-30, '−30 min'], [-60, '−1 h'], [-120, '−2 h'], [-240, '−4 h'], [15, '+15 min']]
+      .map(([m, t]) => h('button', { type: 'button', class: 'chip', onclick: () => shift(m) }, t)));
   const save = h('button', { class: 'btn big', type: 'button', onclick: async () => {
     if (!Object.keys(values).length) return toast('Renseignez au moins une valeur');
     const ts = new Date(when.value).getTime() || Date.now();
@@ -164,7 +169,8 @@ async function entryView(pid, eid) {
     location.hash = `#/p/${pid}`;
   } }, 'Enregistrer');
   app.append(
-    h('div', { class: 'whenbar' }, h('label', {}, 'Date / heure', when), now),
+    h('div', { class: 'whenbar' }, h('label', {}, existing ? 'Date / heure (modifiable)' : 'Date / heure de la tâche', when), now),
+    shifts,
     buildForm(fields, values, lastValues(entries.filter(e => e.id !== existing?.id))),
     h('div', { class: 'savebar' }, save,
       existing ? h('button', { class: 'btn danger', type: 'button', onclick: () => confirmDo('Supprimer cette saisie ?', async () => { await db.del('entries', existing.id); history.back(); }) }, 'Supprimer') : null));
@@ -184,6 +190,7 @@ async function tableView(pid) {
   draw();
   app.append(per,
     h('label', { class: 'check' }, hide, ' Masquer les colonnes vides'),
+    h('p', { class: 'hint' }, 'Touchez ✎ (ou une ligne) pour corriger une saisie, y compris son heure.'),
     holder,
     h('div', { class: 'row' },
       h('button', { class: 'btn', onclick: () => printSheet(p, t, st.hide ? fields.filter(f => filterPeriod(all, st.hours).some(e => e.values[f.key] != null)) : fields, filterPeriod(all, st.hours), PERIODS.find(x => x.h === st.hours).label) }, '🖨 Imprimer / PDF'),
