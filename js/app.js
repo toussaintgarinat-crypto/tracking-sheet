@@ -672,16 +672,16 @@ async function urgenceEditView(id) {
   const existing = id === 'new' ? null : await db.get('emergency', id);
   if (id !== 'new' && !existing) { location.hash = '#/urgence'; return; }
   setHeader(existing ? 'Modifier la fiche' : 'Nouvelle fiche d’urgence', true);
-  const f = existing ? { ...ug.blank(), ...existing, contacts: [...ug.blank().contacts].map((c, i) => ({ ...c, ...(existing.contacts?.[i] || {}) })) } : ug.blank();
+  const f = existing ? { ...ug.blank(), ...existing, trust: { ...ug.blank().trust, ...(existing.trust || {}) }, contacts: [...ug.blank().contacts].map((c, i) => ({ ...c, ...(existing.contacts?.[i] || {}) })) } : ug.blank();
   const inp = (key, label, ph, type = 'text') => h('label', {}, label, h('input', { type, value: f[key] || '', placeholder: ph || '', 'aria-label': label, oninput: e => { f[key] = e.target.value; count(); } }));
   const area = (key, label, ph) => h('label', {}, label, h('textarea', { rows: 2, class: 'note', placeholder: ph || '', 'aria-label': label, oninput: e => { f[key] = e.target.value; count(); } }, f[key] || ''));
   const blood = h('select', { 'aria-label': 'Groupe sanguin', onchange: e => { f.blood = e.target.value; count(); } }, ug.BLOODS.map(b => h('option', { value: b, selected: b === f.blood }, b || '— non renseigné')));
   const counter = h('p', { class: 'hint' });
   function count() { const n = ug.bytes(f); counter.textContent = `Taille du QR : ${n} / ${ug.MAX_BYTES} octets${n > ug.MAX_BYTES ? ' : trop dense, raccourcissez' : ''}`; counter.classList.toggle('error', n > ug.MAX_BYTES); }
   const contactRow = (c, i) => h('div', { class: 'row' },
-    h('input', { type: 'text', value: c.n, placeholder: 'Nom', 'aria-label': `Contact ${i + 1} : nom`, oninput: e => { c.n = e.target.value; count(); } }),
-    h('input', { type: 'text', value: c.r, placeholder: 'Lien (mère, conjoint…)', 'aria-label': `Contact ${i + 1} : lien`, oninput: e => { c.r = e.target.value; count(); } }),
-    h('input', { type: 'text', inputmode: 'tel', value: c.t, placeholder: 'Téléphone', 'aria-label': `Contact ${i + 1} : téléphone`, oninput: e => { c.t = e.target.value; count(); } }));
+    h('input', { type: 'text', value: c.n, placeholder: 'Nom', 'aria-label': `Contact ${typeof i === 'number' ? i + 1 : i} : nom`, oninput: e => { c.n = e.target.value; count(); } }),
+    h('input', { type: 'text', value: c.r, placeholder: 'Lien (mère, conjoint…)', 'aria-label': `Contact ${typeof i === 'number' ? i + 1 : i} : lien`, oninput: e => { c.r = e.target.value; count(); } }),
+    h('input', { type: 'text', inputmode: 'tel', value: c.t, placeholder: 'Téléphone', 'aria-label': `Contact ${typeof i === 'number' ? i + 1 : i} : téléphone`, oninput: e => { c.t = e.target.value; count(); } }));
   const save = h('button', { class: 'btn big', type: 'button', onclick: async () => {
     if (!f.name.trim()) return toast('Indiquez le nom de la personne');
     if (ug.bytes(f) > ug.MAX_BYTES) return toast('Fiche trop longue pour un QR lisible : raccourcissez');
@@ -694,6 +694,10 @@ async function urgenceEditView(id) {
     area('allergies', 'Allergies', 'Ex : pénicilline, arachide'), area('meds', 'Traitements en cours', 'Ex : insuline, anticoagulant'),
     area('conditions', 'Antécédents / maladies', 'Ex : diabète type 1, asthme'), area('devices', 'Dispositifs médicaux', 'Ex : pacemaker, prothèse de hanche'),
     h('h2', {}, 'Personnes à prévenir'), contactRow(f.contacts[0], 0), contactRow(f.contacts[1], 1), contactRow(f.contacts[2], 2),
+    h('h2', {}, 'Personne de confiance'), h('p', { class: 'hint' }, 'La personne que vous avez désignée pour être consultée et transmettre vos volontés si vous ne pouvez plus vous exprimer.'),
+    contactRow(f.trust, 'confiance'),
+    area('directives', 'Directives anticipées', 'Ex : rédigées le 12/05/2025, conservées chez le Dr Dupont et dans Mon espace santé'),
+    h('p', { class: 'hint' }, 'Indiquez si elles existent et où les trouver (ou un résumé court). Le document lui-même se conserve chez votre médecin, avec votre personne de confiance ou dans Mon espace santé.'),
     inp('doctor', 'Médecin traitant', 'Ex : Dr Dupont'), inp('doctorTel', 'Téléphone du médecin', '', 'tel'),
     area('note', 'Autre information utile', 'Ex : refus de transfusion, langue parlée'),
     counter, save,

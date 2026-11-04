@@ -33,7 +33,7 @@ export const SECTIONS = [
     'Partout, « ‹ Retour » remonte d’un niveau et « 🏠 Menu principal » ramène à l’accueil.',
   ] },
   { id: 'urgence', icon: '🆘', title: 'Fiche d’urgence (QR portefeuille)', items: [
-    'Menu → « 🆘 Ma fiche d’urgence » : créez la fiche de la personne (ou d’un proche) avec nom, date de naissance, groupe sanguin, allergies, traitements, antécédents, dispositifs médicaux, personnes à prévenir et médecin traitant.',
+    'Menu → « 🆘 Ma fiche d’urgence » : créez la fiche de la personne (ou d’un proche) avec nom, date de naissance, groupe sanguin, allergies, traitements, antécédents, dispositifs médicaux, personnes à prévenir, personne de confiance, directives anticipées (si elles existent et où les trouver) et médecin traitant.',
     'Le QR code contient ce texte lisible : en cas d’accident, les secours le scannent avec n’importe quel téléphone, sans application ni réseau.',
     '« 🖨 Imprimer » produit une carte au format portefeuille (à découper et plastifier) et une fiche complète à afficher chez soi, en évidence.',
     'Le QR n’est volontairement pas protégé par un code : il doit rester lisible en urgence. Toute personne qui le scanne lit son contenu. N’y mettez que l’essentiel. Taille limitée pour rester lisible.',

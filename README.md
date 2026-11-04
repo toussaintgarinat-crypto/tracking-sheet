@@ -101,7 +101,7 @@ L'accès réel reste contrôlé par le partage Google Drive.
 ## Fiche d'urgence (QR portefeuille)
 
 Menu → **🆘 Ma fiche d'urgence** (`js/urgence.js`) : informations vitales (identité, groupe sanguin, allergies, traitements, antécédents, dispositifs,
-personnes à prévenir, médecin) dans un QR code en **texte lisible par tout lecteur**, sans app ni réseau. Plusieurs fiches possibles (proches).
+personnes à prévenir, personne de confiance, directives anticipées, médecin) dans un QR code en **texte lisible par tout lecteur**, sans app ni réseau. Plusieurs fiches possibles (proches).
 Impression : carte format portefeuille (85,6 × 54 mm) + fiche complète à afficher chez soi. **Volontairement non chiffré** (il doit rester lisible en
 urgence) : seul l'essentiel y figure (limite 900 octets). Stockée localement, incluse dans la sauvegarde. En mode soignant, « Recevoir un bilan » la reconnaît et l'affiche.
 

@@ -4,7 +4,7 @@ export const BLOODS = ['', 'O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'In
 export const MAX_BYTES = 900; // au-delà, le QR devient trop dense pour une carte de portefeuille
 
 export const blank = () => ({ id: '', label: '', name: '', birth: '', blood: '', allergies: '', meds: '', conditions: '', devices: '',
-  contacts: [{ n: '', t: '', r: '' }, { n: '', t: '', r: '' }, { n: '', t: '', r: '' }], doctor: '', doctorTel: '', note: '' });
+  contacts: [{ n: '', t: '', r: '' }, { n: '', t: '', r: '' }, { n: '', t: '', r: '' }], doctor: '', doctorTel: '', trust: { n: '', t: '', r: '' }, directives: '', note: '' });
 
 const clean = s => String(s || '').replace(/\s+/g, ' ').trim();
 const fmtBirth = b => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(b || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : clean(b); };
@@ -18,6 +18,8 @@ export function lines(f) {
   add('ALLERGIES', f.allergies); add('TRAITEMENTS', f.meds); add('ANTECEDENTS', f.conditions); add('DISPOSITIFS', f.devices);
   const cs = f.contacts.filter(c => clean(c.n) || clean(c.t)).map(c => [clean(c.n), clean(c.r) && `(${clean(c.r)})`, clean(c.t)].filter(Boolean).join(' '));
   if (cs.length) out.push('A PREVENIR: ' + cs.join(' ; '));
+  const tr = f.trust || {}; if (clean(tr.n) || clean(tr.t)) out.push('PERSONNE DE CONFIANCE: ' + [clean(tr.n), clean(tr.r) && `(${clean(tr.r)})`, clean(tr.t)].filter(Boolean).join(' '));
+  add('DIRECTIVES ANTICIPEES', f.directives);
   add('Medecin', [clean(f.doctor), clean(f.doctorTel)].filter(Boolean).join(' ')); add('Note', f.note);
   return out;
 }
