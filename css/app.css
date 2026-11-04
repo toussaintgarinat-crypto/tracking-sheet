@@ -164,3 +164,8 @@ textarea.note { font: inherit; padding: .6rem .8rem; border: 2px solid var(--lin
 .card.quick { border-color: var(--accent); }
 .steps li { margin-bottom: .5rem; }
 @media print { .top, .navbar, .btn, .banner, .back { display: none !important; } body { background: #fff; color: #000; font-size: 12pt; } main { max-width: none; } .gsec, .card { border-color: #999; break-inside: avoid; } }
+
+.label-print { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1rem; border: 2px dashed var(--line); border-radius: var(--radius); }
+.ltitle { font-size: 1.6rem; font-weight: 800; text-align: center; }
+.lnote { margin: 0; color: var(--muted); font-size: .9rem; text-align: center; }
+@media print { body.plabel main > *:not(.label-print) { display: none !important; } body.plabel .label-print { border: 0; } body.plabel .ltitle { color: #000; font-size: 28pt; } body.plabel .lnote { color: #000; } body.plabel .qr { width: 14cm; max-width: 100%; } }

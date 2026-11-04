@@ -13,6 +13,18 @@ export const QUICK = {
   tip: 'Le QR est recalculé à chaque ouverture : il faut l’afficher à l’écran, un QR imprimé ne se met pas à jour. Sans caméra : « Partager en texte » envoie les codes par message, « Coller le texte » les importe.',
 };
 
+export const QUICK_DRIVE = {
+  title: 'Un seul QR code, puis tout par Drive',
+  intro: 'Avec Internet, le soignant scanne un QR fixe une seule fois ; ensuite les mises à jour arrivent seules.',
+  steps: [
+    'Patient ou propriétaire : partager le dossier avec Drive (Dossiers partagés → « 3. Partager un de mes patients »), avec une phrase secrète.',
+    'Fiche du patient → « 👥 Dossier partagé » → « 🚪 QR d’accès (étiquette de porte) ». Saisir un texte neutre (« Chambre 12 »), puis « Imprimer l’étiquette ». Ce QR ne change jamais.',
+    'Soignant : Menu → Dossiers partagés → « Scanner… » (ou « Recevoir par QR »), cadrer l’étiquette, saisir son nom, son rôle et le code du patient (une seule fois).',
+    'Le dossier s’ouvre et se synchronise. Ensuite, plus aucun scan : les saisies et messages circulent par Drive.',
+  ],
+  tip: 'Sans phrase secrète, le QR révèle le nom du patient et le lien du dossier à quiconque le scanne : définissez-en toujours une avant d’imprimer. Le soignant doit aussi avoir accès au dossier Drive (partage Google).',
+};
+
 export const SECTIONS = [
   { id: 'start', icon: '🚀', title: 'Démarrer', items: [
     'L’application est une PWA : elle s’installe sur l’écran d’accueil (iPhone : Safari → Partager → Sur l’écran d’accueil ; Android : Chrome → menu ⋮ → Installer l’application) et fonctionne sans réseau.',

@@ -9,7 +9,7 @@ import * as rx from './receive.js';
 import * as bk from './backup.js';
 import * as sync from './sync.js';
 import * as qs from './qrsync.js';
-import { QUICK, SECTIONS } from './aide.js';
+import { QUICK, QUICK_DRIVE, SECTIONS } from './aide.js';
 import { setClientId, hasClientId, hasToken } from './drive.js';
 
 const app = document.getElementById('app');
@@ -56,6 +56,7 @@ const routes = [
   [/^aide$/, aideView],
   [/^suivi$/, suiviView],
   [/^scansync$/, scanSyncView],
+  [/^p\/([^/]+)\/acces$/, accesView],
   [/^p\/([^/]+)\/qrsync$/, qrSyncView],
   [/^p\/([^/]+)\/seuils$/, seuilsView],
   [/^p\/([^/]+)\/messages$/, messagesView],
@@ -89,6 +90,7 @@ function modeSwitch() {
 
 async function render() {
   if (stopCamera) { stopCamera(); stopCamera = null; }
+  document.body.classList.remove('plabel');
   const path = location.hash.replace(/^#\/?/, '');
   clear(app);
   setHeader('Suivi hospitalier', false);
@@ -111,7 +113,7 @@ function setHeader(title, back) {
 }
 // Écran « parent » logique : le retour reste dans l'application (jamais hors de l'appli, même après un rechargement)
 function parentOf(path) {
-  if (/^p\/[^/]+\/(new|table|qr|qrsync|sync|messages|seuils)/.test(path)) return path.match(/^p\/[^/]+/)[0];
+  if (/^p\/[^/]+\/(new|table|qr|qrsync|acces|sync|messages|seuils)/.test(path)) return path.match(/^p\/[^/]+/)[0];
   if (/^r\/.+/.test(path)) return '';
   if (path === 'receive' || path === 'suivi' || path === 'scansync') return '';
   if (path === 'compose') return 'templates';
@@ -624,6 +626,8 @@ function aideView() {
   const list = items => h('ul', { class: 'guide' }, items.map(t => h('li', {}, t)));
   const sec = (x, open) => h('details', { class: 'gsec', open, id: 'g-' + x.id }, h('summary', {}, `${x.icon} ${x.title}`), list(x.items));
   put(h('p', { class: 'lead' }, 'Tout ce qu’il faut savoir pour utiliser l’application, même sans réseau.'),
+    h('div', { class: 'card quick' }, h('h2', {}, '⚡ ' + QUICK_DRIVE.title), h('p', { class: 'hint' }, QUICK_DRIVE.intro),
+      h('ol', { class: 'steps' }, QUICK_DRIVE.steps.map(t => h('li', {}, t))), h('p', { class: 'hint' }, '💡 ' + QUICK_DRIVE.tip)),
     h('div', { class: 'card quick' }, h('h2', {}, '⚡ ' + QUICK.title), h('p', { class: 'hint' }, QUICK.intro),
       h('ol', { class: 'steps' }, QUICK.steps.map(t => h('li', {}, t))), h('p', { class: 'hint' }, '💡 ' + QUICK.tip)),
     h('div', { class: 'cards' }, SECTIONS.map((x, i) => sec(x, i === 0))),
@@ -802,6 +806,7 @@ async function scanSyncView() {
     if (busyNow || finished) return; busyNow = true;
     try {
       const r = await qs.open(rcv, patients);
+      if (r.kind === 'known') { finished = true; if (stopCamera) { stopCamera(); stopCamera = null; } toast('Vous avez déjà ce dossier'); location.hash = `#/p/${r.patient.id}`; return; }
       if (r.kind === 'needcode' || r.kind === 'new' || r.kind === 'inv') { finished = true; if (stopCamera) { stopCamera(); stopCamera = null; } video.hidden = true; }
       if (navigator.vibrate) navigator.vibrate(80);
       if (r.kind === 'sec') { finished = true; if (stopCamera) { stopCamera(); stopCamera = null; } toast(r.stale ? 'Déjà à jour' : `Section de ${r.name} reçue ✓ (${r.added} nouvelle(s) saisie(s))`); location.hash = `#/p/${r.patient.id}`; return; }
@@ -810,15 +815,20 @@ async function scanSyncView() {
       const role = h('select', { 'aria-label': 'Mon rôle' }, ['soignant', 'parent', 'lecture'].map(x => h('option', { value: x }, sync.ROLES[x].label)));
       const needPass = r.kind === 'needcode' || (r.kind === 'inv' && r.data.enc);
       const pass = needPass ? h('input', { type: 'password', placeholder: 'Code choisi par le patient', 'aria-label': 'Code du patient', autocomplete: 'off' }) : null;
-      const label = r.kind === 'inv' ? `Invitation : ${r.data.patient.name}` : r.kind === 'new' ? `Nouveau patient : ${r.obj.pt.name}` : 'Nouveau patient (dossier protégé)';
+      const label = r.kind === 'inv' ? `Invitation : ${r.data.patient.name}` : r.kind === 'new' && r.obj.k === 'drv' ? `Dossier Drive : ${r.obj.pt.name}` : r.kind === 'new' ? `Nouveau patient : ${r.obj.pt.name}` : 'Nouveau patient (dossier protégé)';
       const ok = h('button', { class: 'btn big', type: 'button', onclick: () => busy(ok, async () => {
         if (!name.value.trim()) { name.focus(); throw new Error('Indiquez votre nom.'); }
         if (needPass && !pass.value) { pass.focus(); throw new Error('Saisissez le code du patient.'); }
         if (r.kind === 'inv') { const p = await qs.acceptInvite(r.data, name.value.trim(), role.value, pass?.value || ''); toast('Dossier rejoint ✓'); location.hash = `#/p/${p.id}/qrsync`; return; }
         const src = r.kind === 'new' ? { obj: r.obj, pass: '', salt: null } : await qs.openWithCode(r.packed, pass.value);
+        if (src.obj.k === 'drv') { // QR d'accès Drive : une fois rejoint, tout passe par Drive
+          const p = await qs.acceptDrive(src.obj, name.value.trim(), role.value, src.pass, src.salt);
+          try { await sync.syncNow(p); toast('Dossier rejoint et synchronisé ✓'); } catch (e) { toast('Dossier ajouté. Synchronisation : ' + e.message); }
+          location.hash = `#/p/${p.id}`; return;
+        }
         const res = await qs.acceptNew(src.obj, name.value.trim(), role.value, src.pass, src.salt);
         toast(`Patient ajouté ✓ (${res.added} saisie(s))`); location.hash = `#/p/${res.patient.id}/qrsync`;
-      }) }, r.kind === 'inv' ? 'Rejoindre ce dossier' : 'Suivre ce patient');
+      }) }, r.kind === 'inv' || r.obj?.k === 'drv' ? 'Rejoindre ce dossier' : 'Suivre ce patient');
       clear(result);
       result.append(h('h2', {}, label), h('p', { class: 'hint' }, 'Une seule fois : ensuite il suffit de scanner.'), h('label', {}, 'Mon nom', name), h('label', {}, 'Mon rôle', role), pass ? h('label', {}, 'Code du patient', pass) : null, ok);
     } catch (e) { rcv.parts.clear(); rcv.total = 0; rcv.sid = null; refresh(); toast(e.message); } finally { busyNow = false; }
@@ -845,6 +855,25 @@ async function scanSyncView() {
     video.hidden = true;
     status.textContent = err?.name === 'NotAllowedError' ? 'Accès à la caméra refusé : autorisez-le dans les réglages, ou utilisez « Photo du QR ».' : 'Caméra indisponible : utilisez « Photo du QR » ou « Coller le texte ».';
   }).then(stop => { if (finished) stop(); else stopCamera = stop; });
+}
+
+// ---------- QR d'accès Drive (étiquette de porte) ----------
+async function accesView(pid) {
+  const p = await db.get('patients', pid);
+  if (!p?.share?.folder) { location.hash = `#/p/${pid}`; return; }
+  setHeader(p.name + ' · QR d’accès', true);
+  document.body.classList.add('plabel');
+  const code = await qs.accessCode(p);
+  const wrap = h('div', { class: 'qr' }); wrap.innerHTML = qrSvg(code, { ecc: 'M' }); // SVG généré localement
+  const text = h('input', { type: 'text', value: 'Chambre ', 'aria-label': 'Texte de l’étiquette', placeholder: 'Ex : Chambre 12 (sans nom de patient)' });
+  const title = h('div', { class: 'ltitle' }, text.value);
+  text.addEventListener('input', () => { title.textContent = text.value; });
+  put(h('p', { class: 'lead' }, 'Ce QR code ne change jamais : à imprimer et coller à la porte. Le soignant le scanne une seule fois avec « Recevoir par QR », saisit le code du patient, puis tout passe par Drive.'),
+    h('label', {}, 'Texte de l’étiquette (évitez le nom du patient)', text),
+    h('div', { class: 'label-print' }, title, h('div', { class: 'qrbox' }, wrap), h('p', { class: 'lnote' }, 'Soignants : scannez avec l’application Suivi hospitalier.')),
+    p.share.pass ? h('p', { class: 'hint' }, '🔒 Le contenu est chiffré avec la phrase secrète du dossier : un visiteur qui scanne ne lit rien, il faut le code du patient.')
+      : h('p', { class: 'error' }, '⚠ Dossier sans phrase secrète : ce QR révèle le nom du patient et le lien du dossier à quiconque le scanne. Définissez une phrase secrète avant d’imprimer.'),
+    h('button', { class: 'btn', type: 'button', onclick: () => window.print() }, '🖨 Imprimer l’étiquette'));
 }
 
 // ---------- Dossiers partagés (Google Drive) ----------
@@ -940,7 +969,7 @@ async function syncView(pid) {
     common.append(editBtn);
   } else common.append(h('p', { class: 'hint' }, 'Votre rôle ne permet pas de modifier la fiche commune.'));
 
-  put(status, syncBtn, link(`#/p/${pid}/qrsync`, '▦ Échanger par QR code (sans réseau)', 'btn secondary'),
+  put(status, syncBtn, link(`#/p/${pid}/qrsync`, '▦ Échanger par QR code (sans réseau)', 'btn secondary'), p.share.folder ? link(`#/p/${pid}/acces`, '🚪 QR d’accès (étiquette de porte)', 'btn secondary') : null,
     h('h2', {}, 'Membres du dossier'), members,
     h('p', { class: 'hint' }, 'Vous ne modifiez que vos propres saisies ; celles des autres (🔒) sont en lecture seule. Synchronisez pour envoyer les vôtres et recevoir celles des autres.'),
     h('h2', {}, 'Fiche commune'), common,

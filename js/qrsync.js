@@ -66,6 +66,15 @@ export async function inviteCodes(p) {
   return toCodes(await pack(obj, null));
 }
 
+// QR d'accès au dossier Drive : fixe (le lien du dossier ne change jamais), imprimable pour la porte d'une chambre.
+// Chiffré avec la phrase secrète quand le dossier en a une : le nom du patient n'est alors lisible par personne d'autre.
+export async function accessCode(p) {
+  if (!p.share?.folder) throw new Error('Ce dossier n’utilise pas Drive.');
+  const tpl = p.templateId.startsWith('cus-') ? await db.get('templates', p.templateId) : null;
+  const obj = { k: 'drv', folder: p.share.folder, pt: { id: p.id, name: p.name, service: p.service, templateId: p.templateId }, tpl };
+  return (await toCodes(await pack(obj, p.share)))[0];
+}
+
 // Rassemble les codes reçus (n'importe quel ordre, doublons ignorés)
 export class Receiver {
   constructor() { this.sid = null; this.total = 0; this.parts = new Map(); }
@@ -98,12 +107,13 @@ export async function open(receiver, patients) {
   if (!(flags & 1)) {
     const o = await unpack(packed, null);
     if (o.k === 'inv') return { kind: 'inv', data: o };
+    if (o.k === 'drv') { const have = patients.find(p => p.id === o.pt.id); return have ? { kind: 'known', patient: have } : { kind: 'new', obj: o }; }
     if (o.k !== 'sec') throw new Error('Ce code n’est pas un échange de dossier.');
     return patients.some(p => p.id === o.pid) ? { kind: 'sec', ...(await applySection(o, patients)) } : { kind: 'new', obj: o };
   }
   // chiffré : phrase déjà mémorisée pour l'un de mes dossiers ?
   for (const p of patients) {
-    try { const o = await unpack(packed, p.share); if (o.k === 'sec' && o.pid === p.id) return { kind: 'sec', ...(await applySection(o, patients)) }; } catch { /* autre dossier */ }
+    try { const o = await unpack(packed, p.share); if (o.k === 'drv' && o.pt.id === p.id) return { kind: 'known', patient: p }; if (o.k === 'sec' && o.pid === p.id) return { kind: 'sec', ...(await applySection(o, patients)) }; } catch { /* autre dossier */ }
   }
   if (!saltOf(packed)) throw new Error('Aucun de vos dossiers partagés ne correspond à ce code.');
   return { kind: 'needcode', packed };
@@ -112,7 +122,7 @@ export async function open(receiver, patients) {
 // Premier scan d'un patient chiffré : la phrase secrète (saisie une seule fois) est mémorisée sur l'appareil
 export async function openWithCode(packed, pass) {
   const obj = await unpack(packed, { pass });
-  if (obj.k !== 'sec') throw new Error('Ce code n’est pas un échange de dossier.');
+  if (obj.k !== 'sec' && obj.k !== 'drv') throw new Error('Ce code n’est pas un échange de dossier.');
   return { obj, pass, salt: saltOf(packed) };
 }
 
@@ -147,6 +157,17 @@ export async function acceptInvite(inv, memberName, role, pass) {
   const existing = await db.get('patients', inv.patient.id);
   const share = { provider: 'qr', role, memberId: me().id, memberName, ...(inv.enc ? { pass, salt: inv.salt } : {}) };
   const p = { ...(existing || {}), ...inv.patient, created: existing?.created || Date.now(), updated: Date.now(), share };
+  await db.put('patients', p);
+  return p;
+}
+
+// Rejoint un dossier Drive à partir du QR d'accès (puis l'appelant lance la première synchronisation)
+export async function acceptDrive(obj, memberName, role, pass, salt) {
+  setMyName(memberName);
+  if (obj.tpl?.custom && !(await db.get('templates', obj.tpl.id))) await db.put('templates', obj.tpl);
+  const existing = await db.get('patients', obj.pt.id);
+  const share = { provider: 'drive', folder: obj.folder, role, memberId: me().id, memberName, ...(pass ? { pass, salt } : {}) };
+  const p = { ...(existing || {}), ...obj.pt, created: existing?.created || Date.now(), updated: Date.now(), share };
   await db.put('patients', p);
   return p;
 }

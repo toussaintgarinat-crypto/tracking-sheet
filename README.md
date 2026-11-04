@@ -90,6 +90,13 @@ chacun montre SA section (saisies + messages), l'autre appareil la range en lect
 - Compatible avec Drive : un dossier peut recevoir des sections par QR **et** par Drive (Drive prime pour un même membre).
 - Limite : l'invitation n'est pas chiffrée (elle contient le nom du patient) : à montrer en personne.
 
+### QR d'accès Drive (étiquette de porte)
+
+Fiche patient → Dossier partagé → **🚪 QR d'accès** : un QR **fixe** (lien du dossier Drive + identité du patient, chiffré par la phrase secrète),
+imprimable pour la porte d'une chambre (texte d'étiquette neutre, sans nom de patient). Le soignant le scanne **une seule fois** (nom, rôle, code du
+patient), puis les mises à jour passent par Drive sans autre scan. Sans phrase secrète, le QR n'est que compressé (pas protégé) : l'écran l'indique.
+L'accès réel reste contrôlé par le partage Google Drive.
+
 ## Aide intégrée
 
 Menu → **❓ Aide & guide d'utilisation** (`#/aide`, `js/aide.js`) : guide express « Partage sans réseau en 5 étapes » puis rubriques
