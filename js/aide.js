@@ -60,6 +60,12 @@ export const SECTIONS = [
     'Le délai attendu se règle par patient (1 à 48 h, 6 h par défaut). « 🔔 Seuils » fixe un minimum/maximum par champ numérique (par exemple T° au-dessus de 38,5). Les seuils sont propres à votre appareil.',
     '« 📥 Recevoir un bilan » scanne les QR codes d’un patient (caméra, photo ou texte collé). Un bilan en plusieurs codes se reconstitue dans n’importe quel ordre ; les doublons sont ignorés.',
   ] },
+  { id: 'ordi', icon: '💻', title: 'Sur ordinateur (sans scanner)', items: [
+    'Installer : ouvrez l’adresse de l’application dans Chrome ou Edge, puis cliquez sur l’icône d’installation de la barre d’adresse (Safari sur Mac : Fichier → Ajouter au Dock).',
+    'Un QR code ne se scanne pas depuis l’écran de l’ordinateur lui-même. À la place : « 🔗 Lien à copier (pour un ordinateur) », à côté des QR d’échange et du QR d’accès. Envoyez le lien par message et ouvrez-le sur l’ordinateur : l’application le lit toute seule.',
+    'Ou « Coller le texte » dans l’écran « Recevoir par QR », avec le code texte (« Partager en texte »). Une webcam peut aussi scanner un QR affiché sur un téléphone.',
+    'Le lien contient les mêmes données que le QR : avec une phrase secrète, son contenu reste chiffré ; sans phrase secrète, envoyez-le seulement par un canal de confiance.',
+  ] },
   { id: 'partage', icon: '👥', title: 'Dossiers partagés avec Google Drive', items: [
     'Un même patient pour plusieurs personnes : parents, médecin, orthophoniste… Chacun écrit uniquement dans sa propre section ; les sections des autres sont visibles en lecture seule (🔒) avec le nom de l’auteur. Personne n’écrase le travail d’un autre.',
     'Réglages une fois : votre nom et l’identifiant client Google (créé dans Google Cloud : Drive API activée, ID client OAuth « Application Web », comptes en « utilisateurs test »).',

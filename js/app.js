@@ -61,6 +61,7 @@ const routes = [
   [/^urgence\/([^/]+)$/, urgenceEditView],
   [/^suivi$/, suiviView],
   [/^scansync$/, scanSyncView],
+  [/^lien\/(.+)$/, lienView],
   [/^p\/([^/]+)\/acces$/, accesView],
   [/^p\/([^/]+)\/qrsync$/, qrSyncView],
   [/^p\/([^/]+)\/seuils$/, seuilsView],
@@ -124,7 +125,7 @@ function parentOf(path) {
   if (/^urgence\/[^/]+\/carte$/.test(path)) return 'urgence';
   if (/^urgence\/.+/.test(path)) return 'urgence';
   if (/^r\/.+/.test(path)) return '';
-  if (path === 'receive' || path === 'suivi' || path === 'scansync') return '';
+  if (path === 'receive' || path === 'suivi' || path === 'scansync' || /^lien\//.test(path)) return '';
   if (path === 'compose') return 'templates';
   return '';
 }
@@ -859,6 +860,23 @@ async function messagesView(pid) {
     h('button', { class: 'btn secondary', type: 'button', onclick: e => busy(e.currentTarget, async () => { await sync.syncNow(p); render(); }) }, '🔄 Actualiser'));
 }
 
+// Lien à copier/envoyer : équivalent d'un QR code pour un ordinateur (ou un appareil sans caméra)
+const LINK_MAX = 7000;
+function shareLink(codes) { return location.href.split('#')[0] + '#/lien/' + encodeURIComponent(codes.join('\n')); }
+async function copyLink(codes) {
+  const url = shareLink(codes);
+  if (url.length > LINK_MAX) return toast('Trop long pour un lien : choisissez une période plus courte, ou « Partager en texte »');
+  try { if (navigator.share) { await navigator.share({ url, title: 'Dossier partagé' }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(url); toast('Lien copié : ouvrez-le sur l’ordinateur'); } catch { toast('Copie impossible'); }
+}
+// Ouverture d'un lien reçu : passe par le même chemin que le scan (aucune donnée n'est envoyée nulle part)
+function lienView(enc) {
+  let text = ''; try { text = decodeURIComponent(enc); } catch { /* ignoré */ }
+  if (!/^SJ1\|/.test(text)) { toast('Lien non reconnu'); location.hash = '#/'; return; }
+  try { sessionStorage.setItem('lienCodes', text); } catch { /* ignoré */ }
+  location.hash = '#/scansync';
+}
+
 // ---------- Échange par QR code, sans réseau ----------
 async function qrSyncView(pid) {
   const p = await db.get('patients', pid);
@@ -898,6 +916,7 @@ async function qrSyncView(pid) {
     h('p', { class: 'hint' }, st.what === 'inv' ? '' : 'La période limite le nombre de codes : l’autre appareil ajoute ces saisies aux précédentes.'),
     h('p', { class: 'hint' }, p.share.pass ? '🔒 Codes chiffrés avec la phrase secrète du dossier. L’invitation, elle, n’est pas chiffrée (nom du patient) : montrez-la en personne et ne la photographiez pas.' : 'Codes non chiffrés : pensez à définir une phrase secrète pour les dossiers sensibles.'),
     link('#/scansync', '📷 Recevoir par QR', 'btn'),
+    h('button', { class: 'btn secondary', type: 'button', onclick: () => copyLink(st.codes) }, '🔗 Lien à copier (pour un ordinateur)'),
     h('button', { class: 'btn secondary', type: 'button', onclick: async () => {
       const txt = st.codes.join('\n');
       try { if (navigator.share) { await navigator.share({ text: txt, title: 'Dossier ' + p.name }); return; } } catch (e) { if (e.name === 'AbortError') return; }
@@ -965,7 +984,10 @@ async function scanSyncView() {
   const pasteBox = h('textarea', { rows: 4, class: 'note', placeholder: 'Collez ici les codes reçus en texte (SJ1|…)', 'aria-label': 'Codes en texte' });
   const pasteWrap = h('div', { class: 'stack', hidden: true }, pasteBox, h('button', { class: 'btn secondary', onclick: () => { handle(pasteBox.value); pasteBox.value = ''; } }, 'Importer ces codes'));
   put(video, status, chips, result,
-    h('div', { class: 'row' }, h('label', { class: 'btn secondary', for: 'qr-photo2' }, '🖼 Photo du QR'), file, h('button', { class: 'btn secondary', onclick: () => { pasteWrap.hidden = !pasteWrap.hidden; } }, '📋 Coller le texte')), pasteWrap);
+    h('div', { class: 'row' }, h('label', { class: 'btn secondary', for: 'qr-photo2' }, '🖼 Photo du QR'), file, h('button', { class: 'btn secondary', onclick: () => { pasteWrap.hidden = !pasteWrap.hidden; } }, '📋 Coller le texte')), pasteWrap,
+    h('p', { class: 'hint' }, 'Sur ordinateur : ouvrez le lien reçu (il se lit tout seul), ou « Coller le texte ». Une webcam peut aussi scanner.'));
+  let pending = ''; try { pending = sessionStorage.getItem('lienCodes') || ''; sessionStorage.removeItem('lienCodes'); } catch { /* ignoré */ }
+  if (pending) { video.hidden = true; status.textContent = 'Lien reçu : lecture en cours…'; handle(pending); return; }
   if (!navigator.mediaDevices?.getUserMedia) { video.hidden = true; status.textContent = 'Caméra indisponible : utilisez « Photo du QR » ou « Coller le texte ».'; return; }
   rx.startScanner(video, handle, err => {
     video.hidden = true;
@@ -989,7 +1011,9 @@ async function accesView(pid) {
     h('div', { class: 'label-print' }, title, h('div', { class: 'qrbox' }, wrap), h('p', { class: 'lnote' }, 'Soignants : scannez avec l’application Suivi hospitalier.')),
     p.share.pass ? h('p', { class: 'hint' }, '🔒 Le contenu est chiffré avec la phrase secrète du dossier : un visiteur qui scanne ne lit rien, il faut le code du patient.')
       : h('p', { class: 'error' }, '⚠ Dossier sans phrase secrète : ce QR révèle le nom du patient et le lien du dossier à quiconque le scanne. Définissez une phrase secrète avant d’imprimer.'),
-    h('button', { class: 'btn', type: 'button', onclick: () => window.print() }, '🖨 Imprimer l’étiquette'));
+    h('button', { class: 'btn', type: 'button', onclick: () => window.print() }, '🖨 Imprimer l’étiquette'),
+    h('button', { class: 'btn secondary', type: 'button', onclick: () => copyLink([code]) }, '🔗 Lien à copier (pour un ordinateur)'),
+    h('p', { class: 'hint' }, 'Le lien contient les mêmes données que le QR : envoyez-le seulement par un canal de confiance. Avec une phrase secrète, son contenu reste chiffré.'));
 }
 
 // ---------- Dossiers partagés (Google Drive) ----------

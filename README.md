@@ -105,6 +105,11 @@ personnes à prévenir, personne de confiance, directives anticipées, médecin)
 Impression : carte format portefeuille (85,6 × 54 mm) + fiche complète à afficher chez soi. **Volontairement non chiffré** (il doit rester lisible en
 urgence) : seul l'essentiel y figure (limite 900 octets). Stockée localement, incluse dans la sauvegarde. En mode soignant, « Recevoir un bilan » la reconnaît et l'affiche.
 
+### Sur ordinateur : lien à copier
+
+Un QR ne se scanne pas depuis le même écran : les écrans d'échange et le QR d'accès proposent **🔗 Lien à copier** (`#/lien/<codes>`). Le lien contient
+les mêmes codes que les QR (chiffrés si phrase secrète) ; l'ouvrir lance la même lecture que le scan. Limite : 7 000 caractères (sinon période plus courte ou texte).
+
 ## Aide intégrée
 
 Menu → **❓ Aide & guide d'utilisation** (`#/aide`, `js/aide.js`) : guide express « Partage sans réseau en 5 étapes » puis rubriques
