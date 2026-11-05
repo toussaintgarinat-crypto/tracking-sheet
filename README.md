@@ -3,6 +3,33 @@
 Application web progressive de suivi hospitalier (constantes, transit, douleur, traitements, maternité…),
 **100 % hors-ligne** et **sans serveur** : toutes les données restent dans le navigateur (IndexedDB).
 
+## Aperçu
+
+Captures d'écran de l'application avec des **données entièrement fictives** (patients inventés). Ouvrir l'image pour l'agrandir.
+
+<table>
+<tr><td align="center" valign="top"><img src="docs/screens/01-accueil-patient.png" width="180" alt="Accueil (mode Patient)"><br><sub>Accueil (mode Patient)</sub></td><td align="center" valign="top"><img src="docs/screens/02-fiche-patient.png" width="180" alt="Fiche d'un patient partagé"><br><sub>Fiche d'un patient partagé</sub></td><td align="center" valign="top"><img src="docs/screens/03-saisie.png" width="180" alt="Nouvelle saisie"><br><sub>Nouvelle saisie</sub></td><td align="center" valign="top"><img src="docs/screens/04-tableau.png" width="180" alt="Tableau chronologique"><br><sub>Tableau chronologique</sub></td></tr>
+<tr><td align="center" valign="top"><img src="docs/screens/05-messages-reponse.png" width="180" alt="Demande de nouvelles : réponse en un tap"><br><sub>Demande de nouvelles : réponse en un tap</sub></td><td align="center" valign="top"><img src="docs/screens/06-echange-qr.png" width="180" alt="Échange par QR, sans réseau"><br><sub>Échange par QR, sans réseau</sub></td><td align="center" valign="top"><img src="docs/screens/07-accueil-liberal.png" width="180" alt="Accueil du mode Libéral"><br><sub>Accueil du mode Libéral</sub></td><td align="center" valign="top"><img src="docs/screens/08-tableau-de-suivi.png" width="180" alt="Tableau de suivi (voyants, seuils)"><br><sub>Tableau de suivi (voyants, seuils)</sub></td></tr>
+<tr><td align="center" valign="top"><img src="docs/screens/09-seuils.png" width="180" alt="Seuils d'alerte"><br><sub>Seuils d'alerte</sub></td><td align="center" valign="top"><img src="docs/screens/10-qr-acces-porte.png" width="180" alt="QR d'accès pour la porte (impression)"><br><sub>QR d'accès pour la porte (impression)</sub></td><td align="center" valign="top"><img src="docs/screens/11-fiche-urgence.png" width="180" alt="Fiche d'urgence : carte portefeuille"><br><sub>Fiche d'urgence : carte portefeuille</sub></td><td align="center" valign="top"><img src="docs/screens/12-dossiers-partages.png" width="180" alt="Dossiers partagés (Drive / QR)"><br><sub>Dossiers partagés (Drive / QR)</sub></td></tr>
+<tr><td align="center" valign="top"><img src="docs/screens/13-aide.png" width="180" alt="Aide intégrée"><br><sub>Aide intégrée</sub></td></tr>
+</table>
+
+## Tester avec les QR codes de démonstration
+
+Affichez ces codes sur un écran (ou imprimez-les) et scannez-les avec un téléphone. Les codes 1 à 3 se lisent avec l'appareil photo, sans application.
+Les codes 4 et 5 se scannent dans l'application (**Menu → Dossiers partagés → « 📷 Scanner une invitation ou une section »**).
+Sur ordinateur, utilisez le texte du code (fichiers `docs/qr/*.txt`, bouton « Coller le texte ») ou le lien à copier.
+
+<table>
+<tr><td align="center" valign="top"><img src="docs/qr/01-installer.png" width="170" alt="Installer l'application"><br><b>Installer l'application</b><br><sub>Appareil photo du téléphone : ouvre l'adresse de l'application.</sub></td><td align="center" valign="top"><img src="docs/qr/02-fiche-urgence.png" width="170" alt="Fiche d'urgence"><br><b>Fiche d'urgence</b><br><sub>Appareil photo : affiche le texte vital (identité, allergies, traitements, contacts), sans application.</sub></td><td align="center" valign="top"><img src="docs/qr/03-bilan-patient.png" width="170" alt="Bilan d'un patient"><br><b>Bilan d'un patient</b><br><sub>Appareil photo : texte du bilan ; ou « Recevoir un bilan » dans l'application.</sub></td></tr>
+<tr><td align="center" valign="top"><img src="docs/qr/04-section-chiffree.png" width="170" alt="Section chiffrée d'un dossier"><br><b>Section chiffrée d'un dossier</b><br><sub>Application : Dossiers partagés → « Scanner… ». Code à saisir une fois : `demo2026`.</sub></td><td align="center" valign="top"><img src="docs/qr/05-invitation.png" width="170" alt="Invitation à un dossier"><br><b>Invitation à un dossier</b><br><sub>Application : Dossiers partagés → « Scanner… ». Demande votre nom et votre rôle.</sub></td><td></td></tr>
+</table>
+
+> Le code 1 pointe vers `https://toussaintgarinat-crypto.github.io/tracking-sheet/` : adaptez l'adresse si votre publication est ailleurs
+> (`APP_URL=… node tools/make-demo.js`). Aucune donnée réelle : ne scannez pas ces codes en attendant un résultat clinique.
+
+**Régénérer les captures et les QR** : `python3 -m http.server 8123 &` puis `NODE_PATH=$(npm root -g) node tools/make-demo.js` (nécessite Playwright).
+
 ## Lancer
 
 Aucune étape de build. Servir le dossier en HTTP(S) (le service worker exige `localhost` ou HTTPS) :
