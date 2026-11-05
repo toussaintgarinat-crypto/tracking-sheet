@@ -139,7 +139,8 @@ les mêmes codes que les QR (chiffrés si phrase secrète) ; l'ouvrir lance la m
 
 ## Aide intégrée
 
-Menu → **❓ Aide & guide d'utilisation** (`#/aide`, `js/aide.js`) : guide express « Partage sans réseau en 5 étapes » puis rubriques
+Menu → **❓ Aide & guide d'utilisation** (`#/aide`, `js/aide.js`) : rubrique **🎬 Démonstration** (`js/demo.js`) avec 5 QR codes d'exemple générés à l'ouverture
+(données fictives, rien d'écrit dans la base) et un bouton « ▶ Essayer sur cet appareil » qui passe par le même chemin qu'un scan ; guide express « Partage sans réseau en 5 étapes » puis rubriques
 (démarrer, saisie, export, fiches, corps médical, Drive, messages, sauvegarde, sécurité, dépannage). Hors-ligne, imprimable.
 
 ## Format du QR code

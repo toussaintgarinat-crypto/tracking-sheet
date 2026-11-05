@@ -11,6 +11,7 @@ import * as sync from './sync.js';
 import * as qs from './qrsync.js';
 import { QUICK, QUICK_DRIVE, SECTIONS } from './aide.js';
 import * as ug from './urgence.js';
+import { demoItems, DEMO_PASS } from './demo.js';
 import { setClientId, hasClientId, hasToken } from './drive.js';
 
 const app = document.getElementById('app');
@@ -738,7 +739,7 @@ function urgenceLueView() {
 }
 
 // ---------- Aide / guide d'utilisation ----------
-function aideView() {
+async function aideView() {
   setHeader('Aide & guide', true);
   const list = items => h('ul', { class: 'guide' }, items.map(t => h('li', {}, t)));
   const sec = (x, open) => h('details', { class: 'gsec', open, id: 'g-' + x.id }, h('summary', {}, `${x.icon} ${x.title}`), list(x.items));
@@ -747,8 +748,24 @@ function aideView() {
       h('ol', { class: 'steps' }, QUICK_DRIVE.steps.map(t => h('li', {}, t))), h('p', { class: 'hint' }, '💡 ' + QUICK_DRIVE.tip)),
     h('div', { class: 'card quick' }, h('h2', {}, '⚡ ' + QUICK.title), h('p', { class: 'hint' }, QUICK.intro),
       h('ol', { class: 'steps' }, QUICK.steps.map(t => h('li', {}, t))), h('p', { class: 'hint' }, '💡 ' + QUICK.tip)),
-    h('div', { class: 'cards' }, SECTIONS.map((x, i) => sec(x, i === 0))),
+    h('div', { class: 'cards' }, SECTIONS.map((x, i) => sec(x, i === 0)), await demoSection()),
     h('button', { class: 'btn secondary', type: 'button', onclick: () => { document.querySelectorAll('.gsec').forEach(d => { d.open = true; }); window.print(); } }, '🖨 Imprimer le guide'));
+}
+
+// Rubrique « Démonstration » : QR codes d'exemple, avec « Essayer sur cet appareil » (même chemin qu'un scan)
+async function demoSection() {
+  const base = location.href.split('#')[0];
+  const items = await demoItems(base);
+  const card = it => {
+    const wrap = h('div', { class: 'qr demoqr' }); wrap.innerHTML = qrSvg(it.text, { ecc: it.text.length > 450 ? 'L' : 'M' }); // SVG généré localement
+    return h('div', { class: 'card demo' }, wrap, h('div', { class: 'stack' },
+      h('strong', {}, it.title), h('small', {}, '📷 ' + it.scan), h('span', {}, it.what), h('span', { class: 'res' }, '→ ' + it.res),
+      it.tryIt ? h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/lien/' + encodeURIComponent(it.text); } }, '▶ Essayer sur cet appareil') : null,
+      it.pre ? h('details', {}, h('summary', {}, 'Voir le texte du QR'), h('pre', { class: 'raw' }, it.text)) : null));
+  };
+  return h('details', { class: 'gsec', id: 'g-demo' }, h('summary', {}, '🎬 Démonstration : QR codes à tester'),
+    h('p', { class: 'hint' }, `Données fictives. Affichez ce guide sur un écran et scannez avec un autre téléphone, ou touchez « Essayer sur cet appareil ». Code de démonstration : ${DEMO_PASS}.`),
+    h('div', { class: 'cards' }, items.map(card)));
 }
 
 // ---------- Tableau de suivi multi-patients (corps médical) ----------

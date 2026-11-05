@@ -30,6 +30,7 @@ export const SECTIONS = [
     'L’application est une PWA : elle s’installe sur l’écran d’accueil (iPhone : Safari → Partager → Sur l’écran d’accueil ; Android : Chrome → menu ⋮ → Installer l’application) et fonctionne sans réseau.',
     'Trois modes, au sommet de l’accueil : « 🧑 Patient » pour saisir son suivi ; « 🏠 Libéral » pour un professionnel de cabinet qui suit ses patients (tableau de suivi, dossiers partagés Drive ou QR) ; « 🩺 Hôpital » pour suivre des patients et recevoir des bilans en service.',
     'Vos données restent sur l’appareil. Seuls les dossiers que vous choisissez de partager (Drive ou QR) en sortent.',
+    'En bas de cette page, la rubrique « 🎬 Démonstration » propose des QR codes d’exemple à scanner ou à essayer directement.',
     'Partout, « ‹ Retour » remonte d’un niveau et « 🏠 Menu principal » ramène à l’accueil.',
   ] },
   { id: 'urgence', icon: '🆘', title: 'Fiche d’urgence (QR portefeuille)', items: [

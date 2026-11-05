@@ -188,3 +188,6 @@ pre.raw.urg { font-size: 1.05rem; white-space: pre-wrap; background: var(--card)
   body.pcard .efull { border: 0; break-inside: avoid; } body.pcard .efull .qr { width: 9cm; } body.pcard .efull pre { color: #000; white-space: pre-wrap; font-size: 11pt; }
   body.pcard .ecard { border-color: #000; }
 }
+
+.card.demo { gap: .8rem; } .card.demo .res { font-size: .9rem; color: var(--muted); } .demoqr { max-width: 240px; background: #fff; border-radius: 8px; padding: 6px; line-height: 0; } .demoqr svg { width: 100%; height: auto; }
+@media print { .card.demo .btn { display: none !important; } }
