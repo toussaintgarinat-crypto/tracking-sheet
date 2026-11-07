@@ -467,7 +467,7 @@ async function etabsView() {
     const list = finess.filterEtabs(data, { cp: cp.length >= 2 ? cp : '', type: typeSel.value, q: qIn.value });
     status.textContent = `${list.length} structure(s)` + (list.length > shown ? ` · ${shown} affichées, affinez par type ou nom` : '');
     results.replaceChildren(...list.slice(0, shown).map(e => h('div', { class: 'card' },
-      h('strong', {}, e.nom), h('span', {}, typeLabel[e.type] || ''),
+      h('strong', {}, e.nom), h('span', {}, typeLabel[e.type] || ''), e.officiel ? h('small', {}, `Nom officiel (FINESS) : ${e.officiel}`) : null,
       h('small', {}, [e.adresse, `${e.cp} ${finess.niceCity(e.ville)}`, e.tel].filter(Boolean).join(' · ')),
       h('button', { class: 'btn small', onclick: () => choose(e) }, 'Choisir cet établissement'))));
     more.replaceChildren(...(list.length > shown ? [h('button', { class: 'btn secondary', onclick: () => { shown += 60; show(); } }, 'Afficher plus')] : []));

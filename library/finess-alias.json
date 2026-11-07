@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "_aide": "Noms usuels : numéro FINESS de l'établissement -> noms que les équipes utilisent mais qui n'apparaissent pas dans FINESS. Ce fichier n'est pas écrasé par tools/build-finess.js.",
+  "alias": {
+    "310016977": ["Hôpital Paule de Viguier", "Hôpital des Enfants"]
+  }
+}

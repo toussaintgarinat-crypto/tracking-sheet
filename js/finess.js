@@ -32,9 +32,14 @@ export function deptsForCp(cp) {
   return [p2];
 }
 
-let catalog; const cache = new Map();
+let catalog, aliases = {}; const cache = new Map();
 export async function loadCatalog() {
-  return catalog ||= await (await fetch('library/finess/index.json')).json();
+  if (!catalog) {
+    catalog = await (await fetch('library/finess/index.json')).json();
+    // Noms usuels (facultatif) : n° FINESS -> noms connus des équipes mais absents du fichier officiel
+    try { aliases = (await (await fetch('library/finess-alias.json')).json()).alias || {}; } catch { aliases = {}; }
+  }
+  return catalog;
 }
 export async function loadDept(code) {
   if (!cache.has(code)) {
@@ -47,10 +52,18 @@ export async function loadDept(code) {
 
 const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 // Filtre : code postal (préfixe), type de structure, texte libre (nom, ville, adresse)
+// Si la recherche ne correspond qu'à un nom usuel, la structure est renvoyée sous ce nom (nom officiel conservé dans `officiel`)
 export function filterEtabs(list, { cp = '', type = '', q = '' } = {}) {
   const words = norm(q).split(/\s+/).filter(Boolean);
-  return list.filter(e => (!cp || e.cp.startsWith(cp)) && (!type || e.type === type)
-    && words.every(w => norm(`${e.nom} ${e.ville} ${e.adresse}`).includes(w)));
+  const hit = text => words.every(w => norm(text).includes(w));
+  const out = [];
+  for (const e of list) {
+    if ((cp && !e.cp.startsWith(cp)) || (type && e.type !== type)) continue;
+    if (hit(`${e.nom} ${e.ville} ${e.adresse}`)) { out.push(e); continue; }
+    const a = (aliases[e.id] || []).find(n => hit(`${n} ${e.ville} ${e.adresse}`));
+    if (a) out.push({ ...e, nom: a, officiel: e.nom });
+  }
+  return out;
 }
 
 // Nom d'établissement utilisé pour ranger les fiches

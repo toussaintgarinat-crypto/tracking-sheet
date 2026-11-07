@@ -1,9 +1,15 @@
 // Numéro de version affiché dans l'application + notes « Nouveautés » pour les utilisateurs.
 // À chaque publication : ajouter une entrée EN TÊTE de NEWS, mettre VERSION à jour,
 // et incrémenter VERSION dans sw.js (pour que les appareils récupèrent la nouvelle version).
-export const VERSION = '1.2';
+export const VERSION = '1.3';
 
 export const NEWS = [
+  {
+    v: '1.3', date: '2026-11-07', title: 'Noms usuels des hôpitaux',
+    items: [
+      '🔎 Dans « Trouver mon établissement », on peut maintenant chercher un hôpital par le nom que les équipes utilisent (par exemple « Paule de Viguier »), même quand l’annuaire officiel le regroupe sous un autre nom.',
+    ],
+  },
   {
     v: '1.2', date: '2026-11-07', title: 'Mises à jour plus simples',
     items: [
