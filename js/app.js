@@ -429,6 +429,8 @@ async function etabsView() {
   const cpIn = h('input', { type: 'text', inputmode: 'numeric', maxlength: 5, placeholder: 'ex : 95290', 'aria-label': 'Code postal' });
   const typeSel = h('select', { 'aria-label': 'Type de structure' }, h('option', { value: '' }, 'Tous les types'), cat.types.map(t => h('option', { value: t.id }, t.label)));
   const qIn = h('input', { type: 'search', placeholder: 'Nom ou ville (facultatif)', 'aria-label': 'Nom ou ville' });
+  const manualName = h('input', { type: 'text', placeholder: 'ex : Hôpital Paule de Viguier', 'aria-label': 'Nom de l’établissement' });
+  const manualCity = h('input', { type: 'text', placeholder: 'ex : Toulouse', 'aria-label': 'Ville' });
   const status = h('p', { class: 'hint' }), results = h('div', { class: 'cards' }), more = h('div');
   const deptName = c => `${c} – ${(cat.depts[c]?.l || '').toLowerCase().replace(/(^|[\s'’-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase())}`;
   let codes = [], shown = 60, data = [];
@@ -465,7 +467,7 @@ async function etabsView() {
     if (!codes.length) { status.textContent = 'Indiquez un code postal, ou choisissez une région puis un département.'; results.replaceChildren(); more.replaceChildren(); return; }
     const cp = cpIn.value.trim();
     const list = finess.filterEtabs(data, { cp: cp.length >= 2 ? cp : '', type: typeSel.value, q: qIn.value });
-    status.textContent = `${list.length} structure(s)` + (list.length > shown ? ` · ${shown} affichées, affinez par type ou nom` : '');
+    status.textContent = list.length ? `${list.length} structure(s)` + (list.length > shown ? ` · ${shown} affichées, affinez par type ou nom` : '') : 'Aucun résultat. Essayez un seul mot précis (ex : le nom du quartier ou de la ville), un autre type, ou ajoutez l’établissement à la main ci-dessous.';
     results.replaceChildren(...list.slice(0, shown).map(e => h('div', { class: 'card' },
       h('strong', {}, e.nom), h('span', {}, typeLabel[e.type] || ''), e.officiel ? h('small', {}, `Nom officiel (FINESS) : ${e.officiel}`) : null,
       h('small', {}, [e.adresse, `${e.cp} ${finess.niceCity(e.ville)}`, e.tel].filter(Boolean).join(' · ')),
@@ -481,7 +483,11 @@ async function etabsView() {
   put(h('p', { class: 'lead' }, `Annuaire national des structures de santé et médico-sociales (FINESS, mise à jour ${cat.stamp || ''}). Seul le département consulté est téléchargé.`),
     h('label', {}, 'Code postal', cpIn), h('p', { class: 'hint' }, 'ou'),
     h('label', {}, 'Région', regSel), h('label', {}, 'Département', depSel),
-    h('label', {}, 'Type de structure', typeSel), h('label', {}, 'Nom ou ville', qIn), status, results, more);
+    h('label', {}, 'Type de structure', typeSel), h('label', {}, 'Nom ou ville', qIn), status, results, more,
+    h('details', { class: 'gsec' }, h('summary', {}, 'Mon établissement n’apparaît pas ?'),
+      h('p', { class: 'hint' }, 'Certains hôpitaux sont listés sous un autre nom (nom du groupe, ancien nom). Vous pouvez toujours l’ajouter avec le nom que vos équipes utilisent.'),
+      h('label', {}, 'Nom de l’établissement', manualName), h('label', {}, 'Ville (facultatif)', manualCity),
+      h('button', { class: 'btn', type: 'button', onclick: () => { if (!manualName.value.trim()) return manualName.focus(); choose({ nom: manualName.value.trim(), ville: manualCity.value.trim() }); } }, 'Utiliser cet établissement')));
   show();
 }
 

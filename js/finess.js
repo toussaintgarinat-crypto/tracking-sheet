@@ -50,22 +50,37 @@ export async function loadDept(code) {
   return cache.get(code);
 }
 
-const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-// Filtre : code postal (préfixe), type de structure, texte libre (nom, ville, adresse)
-// Si la recherche ne correspond qu'à un nom usuel, la structure est renvoyée sous ce nom (nom officiel conservé dans `officiel`)
+// Normalisation : sans accents ni casse, « saint » → « st » (comme dans FINESS), ponctuation ignorée
+const norm = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/\bsaint(e?)\b/g, 'st$1').replace(/[^a-z0-9]+/g, ' ').trim();
+// Mots trop génériques pour départager des établissements (FINESS écrit « HOP », « CL », « CH »… à la place) : ignorés tant qu'il reste un mot précis
+const GENERIC = new Set(['hopital', 'hopitaux', 'hop', 'clinique', 'cl', 'centre', 'ctr', 'hospitalier', 'ch', 'chu', 'chr', 'chi', 'groupe', 'de', 'du', 'des', 'la', 'le', 'les', 'd', 'l', 'et', 'a', 'au', 'aux', 'en']);
+export function queryWords(q) {
+  const all = norm(q).split(' ').filter(Boolean);
+  const precise = all.filter(w => !GENERIC.has(w));
+  return precise.length ? precise : all;
+}
+
+// Filtre : code postal (préfixe), type de structure, texte libre (nom, nom usuel, ville, adresse).
+// Si la recherche ne correspond qu'à un nom usuel, la structure est renvoyée sous ce nom (nom officiel conservé dans `officiel`).
+// Les structures dont le NOM correspond passent avant celles qui ne correspondent que par la ville ou l'adresse.
 export function filterEtabs(list, { cp = '', type = '', q = '' } = {}) {
-  const words = norm(q).split(/\s+/).filter(Boolean);
-  const hit = text => words.every(w => norm(text).includes(w));
+  const words = queryWords(q), typed = norm(q).split(' ').filter(Boolean);
+  const hit = text => { const t = norm(text); return words.every(w => t.includes(w)); };
+  // pertinence : mots saisis retrouvés dans le nom (y compris « hôpital »), puis hôpitaux/cliniques avant le reste
+  const score = e => { const t = norm(e.nom); return typed.filter(w => t.includes(w)).length * 2 + (e.type === 'hop' ? 1 : 0); };
   const out = [];
   for (const e of list) {
     if ((cp && !e.cp.startsWith(cp)) || (type && e.type !== type)) continue;
-    if (hit(`${e.nom} ${e.ville} ${e.adresse}`)) { out.push(e); continue; }
-    const a = (aliases[e.id] || []).find(n => hit(`${n} ${e.ville} ${e.adresse}`));
-    if (a) out.push({ ...e, nom: a, officiel: e.nom });
+    if (!words.length) { out.push({ e, rank: 0 }); continue; }
+    if (hit(e.nom)) { out.push({ e, rank: 0 }); continue; }
+    const a = (aliases[e.id] || []).find(n => hit(n));
+    if (a) { out.push({ e: { ...e, nom: a, officiel: e.nom }, rank: 0 }); continue; }
+    if (hit(`${e.nom} ${e.ville} ${e.adresse}`)) out.push({ e, rank: 1 });
   }
-  return out;
+  return out.sort((x, y) => x.rank - y.rank || score(y.e) - score(x.e)).map(x => x.e);
 }
 
 // Nom d'établissement utilisé pour ranger les fiches
-export const orgName = e => `${e.nom} – ${niceCity(e.ville)}`;
+export const orgName = e => e.ville ? `${e.nom} – ${niceCity(e.ville)}` : e.nom;
 export const niceCity = v => v.toLowerCase().replace(/(^|[\s'’-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());

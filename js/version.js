@@ -1,9 +1,16 @@
 // Numéro de version affiché dans l'application + notes « Nouveautés » pour les utilisateurs.
 // À chaque publication : ajouter une entrée EN TÊTE de NEWS, mettre VERSION à jour,
 // et incrémenter VERSION dans sw.js (pour que les appareils récupèrent la nouvelle version).
-export const VERSION = '1.3';
+export const VERSION = '1.4';
 
 export const NEWS = [
+  {
+    v: '1.4', date: '2026-11-07', title: 'Une recherche d’établissement plus tolérante',
+    items: [
+      '🔎 La recherche comprend mieux les noms usuels : « Hôpital », « Centre hospitalier », « Saint »… n’empêchent plus de trouver l’établissement, même quand l’annuaire officiel écrit « HOP », « CH » ou « ST ».',
+      '➕ « Mon établissement n’apparaît pas ? » : vous pouvez maintenant ajouter à la main un établissement absent de l’annuaire, avec le nom que vos équipes utilisent.',
+    ],
+  },
   {
     v: '1.3', date: '2026-11-07', title: 'Noms usuels des hôpitaux',
     items: [
