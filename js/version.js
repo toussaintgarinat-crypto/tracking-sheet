@@ -1,0 +1,32 @@
+// Numéro de version affiché dans l'application + notes « Nouveautés » pour les utilisateurs.
+// À chaque publication : ajouter une entrée EN TÊTE de NEWS, mettre VERSION à jour,
+// et incrémenter VERSION dans sw.js (pour que les appareils récupèrent la nouvelle version).
+export const VERSION = '1.1';
+
+export const NEWS = [
+  {
+    v: '1.1', date: '2026-11-07', title: 'Une fiche pour chaque hôpital',
+    items: [
+      '🏥 Fiches par établissement : chaque hôpital ou institut peut avoir ses propres fiches, pour que les équipes retrouvent celle qu’elles connaissent. Les fiches sont rangées par établissement.',
+      '🔎 Trouver mon établissement : annuaire national (FINESS) de tous les hôpitaux, cliniques, centres de santé, EHPAD et structures médico-sociales. Recherche par code postal ou par région, filtre par type de structure.',
+      '📚 Bibliothèque commune : des fiches prêtes à l’emploi par établissement. Seul l’établissement choisi est téléchargé, pour rester rapide, puis il fonctionne sans réseau.',
+      '🆕 Nouveau patient : un menu « Établissement » n’affiche que les fiches de l’établissement choisi.',
+      '✨ Numéro de version et cette page « Nouveautés ».',
+    ],
+    tip: 'Pour commencer : Menu → Modèles de fiches → « 🔎 Trouver mon établissement ».',
+  },
+  {
+    v: '1.0', date: '2026-11-05', title: 'Première version complète',
+    items: [
+      '📋 Suivi hors-ligne : constantes, douleur, transit, traitements, maternité, avec tableau et export PDF.',
+      '📷 Scan d’une fiche papier pour en faire une fiche numérique.',
+      '▦ Échange par QR code, sans réseau, et dossiers partagés Google Drive chiffrés.',
+      '🩺 Mode libéral, tableau de suivi, seuils d’alerte et demande de nouvelles.',
+      '🆘 Fiche d’urgence (QR portefeuille), sauvegarde chiffrée, aide intégrée.',
+    ],
+  },
+];
+
+const KEY = 'seen-version';
+export const hasUnseenNews = () => { try { return localStorage.getItem(KEY) !== VERSION; } catch { return false; } };
+export const markNewsSeen = () => { try { localStorage.setItem(KEY, VERSION); } catch { /* stockage indisponible */ } };

@@ -13,10 +13,13 @@ import { QUICK, QUICK_DRIVE, SECTIONS } from './aide.js';
 import * as ug from './urgence.js';
 import { demoItems, DEMO_PASS } from './demo.js';
 import * as finess from './finess.js';
+import { VERSION, NEWS, hasUnseenNews, markNewsSeen } from './version.js';
 import { setClientId, hasClientId, hasToken } from './drive.js';
 
 const app = document.getElementById('app');
 const titleEl = document.getElementById('title');
+const verEl = document.getElementById('ver');
+if (verEl) verEl.textContent = 'v' + VERSION;
 const backBtn = document.getElementById('back');
 // app.append natif écrit « null » pour les valeurs vides : on les filtre
 const put = (...nodes) => app.append(...nodes.flat(Infinity).filter(n => n != null && n !== false));
@@ -78,6 +81,7 @@ const routes = [
   [/^templates$/, templatesView],
   [/^bibliotheque$/, libraryView],
   [/^etablissements$/, etabsView],
+  [/^nouveautes$/, newsView],
   [/^compose$/, composeView],
   [/^scan$/, scanView],
   [/^share$/, shareView],
@@ -104,6 +108,21 @@ let stopCamera = null;
 const getMode = () => { try { const m = localStorage.getItem('mode'); return m === 'medical' || m === 'liberal' ? m : 'patient'; } catch { return 'patient'; } };
 const setMode = m => { try { localStorage.setItem('mode', m); } catch { /* ignoré */ } render(); };
 
+// Bandeau « Nouveautés » : affiché tant que la version courante n'a pas été consultée
+function newsBanner() {
+  if (!hasUnseenNews()) return null;
+  return h('a', { class: 'banner info', href: '#/nouveautes' }, h('strong', {}, `✨ Nouveautés de la version ${VERSION}`), h('span', {}, 'Touchez pour découvrir ce qui change.'));
+}
+function newsView() {
+  setHeader('Nouveautés', true);
+  markNewsSeen();
+  put(h('p', { class: 'lead' }, `Vous utilisez la version ${VERSION}. Voici ce qui a changé.`),
+    h('div', { class: 'cards' }, NEWS.map(n => h('div', { class: 'card' },
+      h('h2', {}, `v${n.v} · ${n.title}`), h('small', {}, new Date(n.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })),
+      h('ul', { class: 'guide' }, n.items.map(t => h('li', {}, t))),
+      n.tip ? h('p', { class: 'hint' }, '💡 ' + n.tip) : null))));
+}
+
 // Rappel : des données ont changé depuis la dernière sauvegarde
 function backupBanner() {
   const { lastBackup, lastChange } = bk.backupState();
@@ -113,6 +132,7 @@ function backupBanner() {
 }
 const urgenceLink = () => link('#/urgence', '🆘 Ma fiche d’urgence (QR portefeuille)', 'btn secondary');
 const aideLink = () => link('#/aide', '❓ Aide & guide d’utilisation', 'btn secondary');
+const newsLink = () => link('#/nouveautes', `✨ Nouveautés (v${VERSION})`, 'btn secondary');
 const dossiersLink = () => link('#/dossiers', '👥 Dossiers partagés', 'btn secondary');
 const backupLink = () => link('#/backup', '💾 Sauvegarde & restauration', 'btn secondary');
 
@@ -154,7 +174,7 @@ function parentOf(path) {
   if (/^urgence\/.+/.test(path)) return 'urgence';
   if (/^r\/.+/.test(path)) return '';
   if (path === 'receive' || path === 'suivi' || path === 'scansync' || /^lien\//.test(path)) return '';
-  if (path === 'compose' || path === 'bibliotheque' || path === 'etablissements') return 'templates';
+  if (path === 'compose' || path === 'bibliotheque' || path === 'etablissements' || path === 'nouveautes') return 'templates';
   return '';
 }
 backBtn.addEventListener('click', () => { location.hash = '#/' + parentOf(location.hash.replace(/^#\/?/, '')); });
@@ -165,7 +185,7 @@ const confirmDo = (msg, fn) => { if (confirm(msg)) fn(); };
 
 // ---------- Accueil / patients ----------
 async function homeView() {
-  put(modeSwitch(), backupBanner());
+  put(modeSwitch(), newsBanner(), backupBanner());
   if (getMode() === 'medical') return medicalHome();
   if (getMode() === 'liberal') return liberalHome();
   setHeader('Suivi hospitalier · Patient', false);
@@ -186,7 +206,7 @@ async function homeView() {
   put(list,
     link('#/new-patient', '＋ Nouveau patient', 'btn big'),
     h('div', { class: 'row' }, link('#/scan', '📷 Scanner une fiche papier', 'btn secondary'), link('#/templates', '📋 Modèles de fiches', 'btn secondary')),
-    urgenceLink(), dossiersLink(), backupLink(), aideLink(),
+    urgenceLink(), dossiersLink(), backupLink(), aideLink(), newsLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     h('details', { class: 'danger-zone' }, h('summary', {}, 'Confidentialité & purge'),
       h('p', {}, 'Rien n’est envoyé à un serveur, sauf les dossiers que vous choisissez de partager (Google Drive). Le reste est stocké dans le navigateur de cet appareil.'),
@@ -651,7 +671,7 @@ async function liberalHome() {
     link('#/suivi', '📊 Tableau de suivi de mes patients', 'btn big'),
     h('div', { class: 'row' }, link('#/scansync', '📷 Suivre un patient (scanner son QR)', 'btn secondary'), link('#/new-patient', '＋ Nouveau patient', 'btn secondary')),
     h('h2', {}, 'Mes patients'), list,
-    urgenceLink(), dossiersLink(), backupLink(), aideLink(),
+    urgenceLink(), dossiersLink(), backupLink(), aideLink(), newsLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     h('p', { class: 'hint' }, 'Application d’aide au suivi : elle ne remplace pas votre dossier patient. Données de santé réelles : vérifiez l’hébergement (HDS) avant d’utiliser Drive.'));
 }
@@ -668,7 +688,7 @@ async function medicalHome() {
     link('#/suivi', '📊 Tableau de suivi des patients', 'btn big'),
     link('#/receive', '📥 Recevoir un bilan (scanner)', 'btn secondary'),
     h('h2', {}, 'Bilans reçus'), list,
-    urgenceLink(), dossiersLink(), backupLink(), aideLink(),
+    urgenceLink(), dossiersLink(), backupLink(), aideLink(), newsLink(),
     link('#/share', '📲 Partager l’application (QR)', 'btn secondary'),
     recs.length ? h('details', { class: 'danger-zone' }, h('summary', {}, 'Purge'),
       h('button', { class: 'btn danger', onclick: () => confirmDo('Supprimer DÉFINITIVEMENT tous les bilans reçus sur cet appareil ?', async () => { await db.purgeReceived(); toast('Bilans supprimés'); render(); }) }, 'Effacer tous les bilans reçus')) : null);
