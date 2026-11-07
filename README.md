@@ -58,6 +58,10 @@ La liste des établissements se construit au fil de l'eau, sans configuration. *
 *Nouveau patient* propose un filtre par établissement pour que chaque équipe ne voie que ses fiches habituelles. **Copier pour un établissement**
 duplique un modèle standard au nom de l'établissement. Les fiches sont incluses dans la sauvegarde.
 
+**Bibliothèque commune** (`#/bibliotheque`, dossier `library/`) : `library/index.json` est un petit catalogue ; chaque établissement a son fichier
+`library/<id>.json` (`{"id","name","sheets":[{"id","name","modules":[…]}]}`, ou `fields` pour des champs sur mesure), téléchargé **uniquement** quand on
+l'ajoute, puis importé dans l'appareil (hors-ligne ensuite). Pour ajouter un hôpital : créer son fichier et l'inscrire dans `index.json`. L'entrée fournie est une démonstration fictive.
+
 ## Trois modes : patient, libéral, hôpital
 
 Sélecteur en haut de l'accueil (mémorisé sur l'appareil).

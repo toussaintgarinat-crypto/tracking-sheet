@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "id": "demo-hopital",
+  "name": "Hôpital de démonstration",
+  "sheets": [
+    { "id": "chir", "name": "Chirurgie – suites opératoires", "modules": ["vitals", "pain", "bio", "care"] },
+    { "id": "med", "name": "Médecine – surveillance", "modules": ["vitals", "io", "pain"] },
+    { "id": "mater", "name": "Maternité – suites de couches", "modules": ["mater", "vitals", "pain"] }
+  ]
+}

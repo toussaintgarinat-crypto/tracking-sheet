@@ -75,6 +75,7 @@ const routes = [
   [/^p\/([^/]+)\/table$/, tableView],
   [/^p\/([^/]+)\/qr$/, qrView],
   [/^templates$/, templatesView],
+  [/^bibliotheque$/, libraryView],
   [/^compose$/, composeView],
   [/^scan$/, scanView],
   [/^share$/, shareView],
@@ -151,7 +152,7 @@ function parentOf(path) {
   if (/^urgence\/.+/.test(path)) return 'urgence';
   if (/^r\/.+/.test(path)) return '';
   if (path === 'receive' || path === 'suivi' || path === 'scansync' || /^lien\//.test(path)) return '';
-  if (path === 'compose') return 'templates';
+  if (path === 'compose' || path === 'bibliotheque') return 'templates';
   return '';
 }
 backBtn.addEventListener('click', () => { location.hash = '#/' + parentOf(location.hash.replace(/^#\/?/, '')); });
@@ -387,11 +388,38 @@ async function templatesView() {
   const sections = [];
   for (const o of orgsOf(tpls)) sections.push(h('h2', {}, `🏥 ${o}`), h('div', { class: 'cards' }, tpls.filter(t => t.custom && t.org === o).map(card)));
   const loose = tpls.filter(t => t.custom && !t.org);
-  put(h('div', { class: 'row' }, link('#/compose', '＋ Composer une fiche', 'btn'), link('#/scan', '📷 Scanner une fiche', 'btn secondary')),
+  put(h('div', { class: 'row' }, link('#/bibliotheque', '🏥 Bibliothèque des établissements', 'btn'), link('#/compose', '＋ Composer une fiche', 'btn secondary'), link('#/scan', '📷 Scanner une fiche', 'btn secondary')),
     h('p', { class: 'hint' }, 'Un jeu de fiches par hôpital ou institut : les équipes retrouvent leur fiche habituelle. Ajoutez un établissement en composant, en scannant ou en copiant un modèle standard.'),
     sections,
     loose.length ? [h('h2', {}, 'Mes fiches (sans établissement)'), h('div', { class: 'cards' }, loose.map(card))] : null,
     h('h2', {}, 'Modèles standards'), h('div', { class: 'cards' }, tpls.filter(t => !t.custom).map(card)));
+}
+
+// ---------- Bibliothèque commune (chargée à la demande : un fichier par établissement) ----------
+// library/index.json = petit catalogue ; library/<id>.json = fiches d'un établissement, téléchargé seulement au choix
+// (le service worker le met en cache à la première utilisation, donc disponible ensuite hors-ligne).
+async function libraryView() {
+  setHeader('Bibliothèque des établissements', true);
+  const list = h('div', { class: 'cards' }, h('p', { class: 'empty' }, 'Chargement du catalogue…'));
+  put(h('p', { class: 'lead' }, 'Fiches propres à chaque hôpital ou institut du territoire. Seul l’établissement que vous choisissez est téléchargé ; il reste ensuite disponible sans réseau.'), list);
+  let cat;
+  try { cat = await (await fetch('library/index.json')).json(); }
+  catch { return list.replaceChildren(h('p', { class: 'empty' }, 'Catalogue indisponible sans réseau (aucun établissement n’a encore été téléchargé sur cet appareil).')); }
+  const have = new Set((await db.all('templates')).map(t => t.libOrg).filter(Boolean));
+  list.replaceChildren(...cat.orgs.map(o => h('div', { class: 'card' },
+    h('strong', {}, o.name), h('span', {}, [o.area, `${o.sheets} fiche(s)`].filter(Boolean).join(' · ')),
+    h('button', { class: 'btn small', onclick: async e => {
+      const b = e.currentTarget; b.disabled = true; b.textContent = 'Téléchargement…';
+      try {
+        const data = await (await fetch(`library/${encodeURIComponent(o.id)}.json`)).json();
+        for (const s of data.sheets) {
+          const base = { id: `lib-${o.id}-${s.id}`, name: s.name, custom: true, org: data.name, libOrg: o.id, desc: `Fiche ${data.name}` };
+          await db.put('templates', { ...base, fields: templateFields(s).map(f => ({ ...f })) });
+        }
+        rememberOrg(data.name); toast(`${data.name} : ${data.sheets.length} fiche(s) ajoutée(s) ✓`);
+        location.hash = '#/templates';
+      } catch { b.disabled = false; b.textContent = 'Réessayer'; toast('Téléchargement impossible (réseau ?)'); }
+    } }, have.has(o.id) ? 'Mettre à jour' : 'Ajouter à mon appareil'))));
 }
 
 async function composeView() {

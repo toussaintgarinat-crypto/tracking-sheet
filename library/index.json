@@ -1,0 +1,6 @@
+{
+  "v": 1,
+  "orgs": [
+    { "id": "demo-hopital", "name": "Hôpital de démonstration", "area": "Exemple (données fictives)", "sheets": 3, "updated": "2026-11-07" }
+  ]
+}
