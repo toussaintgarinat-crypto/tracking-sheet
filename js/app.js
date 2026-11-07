@@ -12,6 +12,7 @@ import * as qs from './qrsync.js';
 import { QUICK, QUICK_DRIVE, SECTIONS } from './aide.js';
 import * as ug from './urgence.js';
 import { demoItems, DEMO_PASS } from './demo.js';
+import * as finess from './finess.js';
 import { setClientId, hasClientId, hasToken } from './drive.js';
 
 const app = document.getElementById('app');
@@ -76,6 +77,7 @@ const routes = [
   [/^p\/([^/]+)\/qr$/, qrView],
   [/^templates$/, templatesView],
   [/^bibliotheque$/, libraryView],
+  [/^etablissements$/, etabsView],
   [/^compose$/, composeView],
   [/^scan$/, scanView],
   [/^share$/, shareView],
@@ -152,7 +154,7 @@ function parentOf(path) {
   if (/^urgence\/.+/.test(path)) return 'urgence';
   if (/^r\/.+/.test(path)) return '';
   if (path === 'receive' || path === 'suivi' || path === 'scansync' || /^lien\//.test(path)) return '';
-  if (path === 'compose' || path === 'bibliotheque') return 'templates';
+  if (path === 'compose' || path === 'bibliotheque' || path === 'etablissements') return 'templates';
   return '';
 }
 backBtn.addEventListener('click', () => { location.hash = '#/' + parentOf(location.hash.replace(/^#\/?/, '')); });
@@ -388,11 +390,79 @@ async function templatesView() {
   const sections = [];
   for (const o of orgsOf(tpls)) sections.push(h('h2', {}, `🏥 ${o}`), h('div', { class: 'cards' }, tpls.filter(t => t.custom && t.org === o).map(card)));
   const loose = tpls.filter(t => t.custom && !t.org);
-  put(h('div', { class: 'row' }, link('#/bibliotheque', '🏥 Bibliothèque des établissements', 'btn'), link('#/compose', '＋ Composer une fiche', 'btn secondary'), link('#/scan', '📷 Scanner une fiche', 'btn secondary')),
+  put(h('div', { class: 'row' }, link('#/bibliotheque', '🏥 Bibliothèque des établissements', 'btn'), link('#/etablissements', '🔎 Trouver mon établissement', 'btn secondary'), link('#/compose', '＋ Composer une fiche', 'btn secondary'), link('#/scan', '📷 Scanner une fiche', 'btn secondary')),
     h('p', { class: 'hint' }, 'Un jeu de fiches par hôpital ou institut : les équipes retrouvent leur fiche habituelle. Ajoutez un établissement en composant, en scannant ou en copiant un modèle standard.'),
     sections,
     loose.length ? [h('h2', {}, 'Mes fiches (sans établissement)'), h('div', { class: 'cards' }, loose.map(card))] : null,
     h('h2', {}, 'Modèles standards'), h('div', { class: 'cards' }, tpls.filter(t => !t.custom).map(card)));
+}
+
+// ---------- Annuaire des établissements (FINESS) : choix par région / code postal / type ----------
+async function etabsView() {
+  setHeader('Trouver mon établissement', true);
+  let cat;
+  try { cat = await finess.loadCatalog(); }
+  catch { return put(h('p', { class: 'empty' }, 'Annuaire indisponible sans réseau (il se télécharge département par département, à la première utilisation).')); }
+  const typeLabel = Object.fromEntries(cat.types.map(t => [t.id, t.label]));
+  const regSel = h('select', { 'aria-label': 'Région' }, h('option', { value: '' }, 'Toutes les régions'), finess.REGIONS.map(([n], i) => h('option', { value: i }, n)));
+  const depSel = h('select', { 'aria-label': 'Département' });
+  const cpIn = h('input', { type: 'text', inputmode: 'numeric', maxlength: 5, placeholder: 'ex : 95290', 'aria-label': 'Code postal' });
+  const typeSel = h('select', { 'aria-label': 'Type de structure' }, h('option', { value: '' }, 'Tous les types'), cat.types.map(t => h('option', { value: t.id }, t.label)));
+  const qIn = h('input', { type: 'search', placeholder: 'Nom ou ville (facultatif)', 'aria-label': 'Nom ou ville' });
+  const status = h('p', { class: 'hint' }), results = h('div', { class: 'cards' }), more = h('div');
+  const deptName = c => `${c} – ${(cat.depts[c]?.l || '').toLowerCase().replace(/(^|[\s'’-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase())}`;
+  let codes = [], shown = 60, data = [];
+
+  const fillDeps = () => {
+    const reg = regSel.value === '' ? null : finess.REGIONS[+regSel.value][1];
+    const list = (reg || Object.keys(cat.depts)).slice().sort();
+    depSel.replaceChildren(h('option', { value: '' }, reg ? 'Tous les départements de la région' : 'Choisir un département…'), ...list.map(c => h('option', { value: c }, deptName(c))));
+  };
+  const pick = async () => {
+    const cp = cpIn.value.trim();
+    codes = cp.length >= 2 ? finess.deptsForCp(cp) : depSel.value ? [depSel.value] : [];
+    if (!codes.length && regSel.value !== '' && finess.REGIONS[+regSel.value][1].length === 1) codes = finess.REGIONS[+regSel.value][1];
+    if (!codes.length) { data = []; return show(); }
+    status.textContent = 'Chargement…';
+    try { data = (await Promise.all(codes.map(finess.loadDept))).flat(); }
+    catch { data = []; status.textContent = 'Téléchargement impossible (réseau ?).'; results.replaceChildren(); more.replaceChildren(); return; }
+    shown = 60; show();
+  };
+  const choose = e => {
+    const org = finess.orgName(e);
+    const base = h('select', { 'aria-label': 'Modèle de départ' }, BUILTIN_TEMPLATES.map(t => h('option', { value: t.id }, t.name)));
+    const box = h('div', { class: 'card' }, h('strong', {}, org), h('small', {}, 'Créer la première fiche de cet établissement à partir d’un modèle :'), base,
+      h('button', { class: 'btn', onclick: async () => {
+        const t = BUILTIN_TEMPLATES.find(x => x.id === base.value);
+        await saveTemplate(t.name, templateFields(t).map(f => ({ ...f })), org);
+        rememberOrg(org); toast('Fiche créée pour cet établissement ✓'); location.hash = '#/new-patient';
+      } }, 'Créer la fiche'),
+      h('button', { class: 'btn secondary', onclick: () => { rememberOrg(org); location.hash = '#/compose'; } }, 'Composer une fiche vide'),
+      h('button', { class: 'btn secondary small', onclick: () => { box.remove(); } }, 'Annuler'));
+    results.prepend(box); box.scrollIntoView({ block: 'nearest' });
+  };
+  const show = () => {
+    if (!codes.length) { status.textContent = 'Indiquez un code postal, ou choisissez une région puis un département.'; results.replaceChildren(); more.replaceChildren(); return; }
+    const cp = cpIn.value.trim();
+    const list = finess.filterEtabs(data, { cp: cp.length >= 2 ? cp : '', type: typeSel.value, q: qIn.value });
+    status.textContent = `${list.length} structure(s)` + (list.length > shown ? ` · ${shown} affichées, affinez par type ou nom` : '');
+    results.replaceChildren(...list.slice(0, shown).map(e => h('div', { class: 'card' },
+      h('strong', {}, e.nom), h('span', {}, typeLabel[e.type] || ''),
+      h('small', {}, [e.adresse, `${e.cp} ${finess.niceCity(e.ville)}`, e.tel].filter(Boolean).join(' · ')),
+      h('button', { class: 'btn small', onclick: () => choose(e) }, 'Choisir cet établissement'))));
+    more.replaceChildren(...(list.length > shown ? [h('button', { class: 'btn secondary', onclick: () => { shown += 60; show(); } }, 'Afficher plus')] : []));
+  };
+  regSel.addEventListener('change', () => { cpIn.value = ''; fillDeps(); pick(); });
+  depSel.addEventListener('change', () => { cpIn.value = ''; pick(); });
+  cpIn.addEventListener('input', () => { cpIn.value = cpIn.value.replace(/\D/g, ''); if (cpIn.value.length >= 2) { depSel.value = ''; } pick(); });
+  typeSel.addEventListener('change', () => { shown = 60; show(); });
+  qIn.addEventListener('input', () => { shown = 60; show(); });
+  fillDeps();
+  put(h('p', { class: 'lead' }, `Annuaire national des structures de santé et médico-sociales (FINESS, mise à jour ${cat.stamp || ''}). Seul le département consulté est téléchargé.`),
+    h('label', {}, 'Code postal', cpIn), h('p', { class: 'hint' }, 'ou'),
+    h('label', {}, 'Région', regSel), h('label', {}, 'Département', depSel),
+    h('label', {}, 'Type de structure', typeSel), h('label', {}, 'Nom ou ville', qIn), status, results, more);
+  show();
 }
 
 // ---------- Bibliothèque commune (chargée à la demande : un fichier par établissement) ----------
@@ -401,7 +471,8 @@ async function templatesView() {
 async function libraryView() {
   setHeader('Bibliothèque des établissements', true);
   const list = h('div', { class: 'cards' }, h('p', { class: 'empty' }, 'Chargement du catalogue…'));
-  put(h('p', { class: 'lead' }, 'Fiches propres à chaque hôpital ou institut du territoire. Seul l’établissement que vous choisissez est téléchargé ; il reste ensuite disponible sans réseau.'), list);
+  put(h('p', { class: 'lead' }, 'Fiches propres à chaque hôpital ou institut du territoire. Seul l’établissement que vous choisissez est téléchargé ; il reste ensuite disponible sans réseau.'),
+    link('#/etablissements', '🔎 Trouver mon établissement (région, code postal, type)', 'btn secondary'), list);
   let cat;
   try { cat = await (await fetch('library/index.json')).json(); }
   catch { return list.replaceChildren(h('p', { class: 'empty' }, 'Catalogue indisponible sans réseau (aucun établissement n’a encore été téléchargé sur cet appareil).')); }

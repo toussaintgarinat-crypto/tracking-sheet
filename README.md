@@ -62,6 +62,13 @@ duplique un modèle standard au nom de l'établissement. Les fiches sont incluse
 `library/<id>.json` (`{"id","name","sheets":[{"id","name","modules":[…]}]}`, ou `fields` pour des champs sur mesure), téléchargé **uniquement** quand on
 l'ajoute, puis importé dans l'appareil (hors-ligne ensuite). Pour ajouter un hôpital : créer son fichier et l'inscrire dans `index.json`. L'entrée fournie est une démonstration fictive.
 
+**Annuaire des établissements** (`#/etablissements`, `js/finess.js`, dossier `library/finess/`) : tous les hôpitaux, cliniques, centres de santé, EHPAD,
+structures du handicap, de l'enfance et du social de France (≈ 103 000 structures, fichier officiel **FINESS**, data.gouv.fr, Licence Ouverte Etalab, extraction du 12/05/2026).
+Recherche par **code postal** ou par **région → département**, filtre par **type de structure** (15 types : hôpitaux, psychiatrie, cancérologie, SSR, EHPAD, handicap…)
+et par nom/ville. Un seul fichier de département est téléchargé (puis disponible hors-ligne). « Choisir cet établissement » crée une première fiche à son nom
+à partir d'un modèle, ou prépare la composition d'une fiche vide. Mise à jour : télécharger le CSV « Extraction Finess des Etablissements » puis
+`node tools/build-finess.js fichier.csv`. Annuaire seulement : il ne contient ni les fiches de suivi ni les services propres à chaque établissement.
+
 ## Trois modes : patient, libéral, hôpital
 
 Sélecteur en haut de l'accueil (mémorisé sur l'appareil).
