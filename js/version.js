@@ -1,9 +1,16 @@
 // Numéro de version affiché dans l'application + notes « Nouveautés » pour les utilisateurs.
 // À chaque publication : ajouter une entrée EN TÊTE de NEWS, mettre VERSION à jour,
 // et incrémenter VERSION dans sw.js (pour que les appareils récupèrent la nouvelle version).
-export const VERSION = '1.1';
+export const VERSION = '1.2';
 
 export const NEWS = [
+  {
+    v: '1.2', date: '2026-11-07', title: 'Mises à jour plus simples',
+    items: [
+      '🔄 Quand une nouvelle version est disponible, un bandeau « Nouvelle version disponible » apparaît en bas de l’écran : un tap suffit pour la prendre, sans fermer l’application ni passer par Safari.',
+      '⚡ La vérification se fait toute seule à chaque retour dans l’application (avec du réseau). Vos données ne sont jamais touchées.',
+    ],
+  },
   {
     v: '1.1', date: '2026-11-07', title: 'Une fiche pour chaque hôpital',
     items: [

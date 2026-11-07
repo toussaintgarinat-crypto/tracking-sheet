@@ -1341,7 +1341,21 @@ setInterval(autoSync, 5 * 60000);
 setTimeout(autoSync, 1500);
 
 // ---------- Démarrage ----------
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+// Mise à jour : quand une nouvelle version prend la main, on propose de recharger (jamais automatiquement : une saisie en cours ne doit pas être perdue)
+function showUpdateBar() {
+  if (document.getElementById('update-bar')) return;
+  document.body.append(h('button', { id: 'update-bar', class: 'update-bar', type: 'button', onclick: () => location.reload() },
+    h('strong', {}, '🔄 Nouvelle version disponible'), h('span', {}, 'Touchez pour mettre à jour')));
+}
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller; // faux à la toute première installation : rien à proposer
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) showUpdateBar(); });
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    setInterval(check, 30 * 60 * 1000);
+  }).catch(() => {});
+}
 requestPersistence();
 window.addEventListener('online', () => document.body.classList.remove('offline'));
 window.addEventListener('offline', () => document.body.classList.add('offline'));
