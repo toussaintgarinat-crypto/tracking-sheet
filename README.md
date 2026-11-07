@@ -51,6 +51,13 @@ d'accueil) et Android (Chrome).
 | 3 – Modèles | 6 modules (constantes, alimentation/transit, douleur, traitements, biométrie, maternité) ; 7 modèles : Général, Pédiatrie, Maternité/Néonat., Chirurgie, Gériatrie, Oncologie, Soins continus ; composition libre | `js/modules.js` |
 | 4 – QR & export | QR « data-embedded » (JSON compact UTF-8, découpé en plusieurs codes autonomes, période 6/12/24/48 h ou tout), tableau chronologique, impression / PDF (A4 paysage) | `js/export.js`, `js/qr.js` |
 
+### Fiches par établissement (hôpital, institut)
+
+Chaque fiche peut être rattachée à un **établissement** (champ facultatif en composant ou en scannant une fiche, ou bouton **🏥** dans *Modèles de fiches*).
+La liste des établissements se construit au fil de l'eau, sans configuration. *Modèles de fiches* range les fiches par établissement ;
+*Nouveau patient* propose un filtre par établissement pour que chaque équipe ne voie que ses fiches habituelles. **Copier pour un établissement**
+duplique un modèle standard au nom de l'établissement. Les fiches sont incluses dans la sauvegarde.
+
 ## Trois modes : patient, libéral, hôpital
 
 Sélecteur en haut de l'accueil (mémorisé sur l'appareil).

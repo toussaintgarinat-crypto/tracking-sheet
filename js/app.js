@@ -35,11 +35,35 @@ function lastValues(entries) {
   [...entries].sort((a, b) => b.ts - a.ts).forEach(e => { for (const [k, v] of Object.entries(e.values)) if (!(k in last)) last[k] = v; });
   return last;
 }
-async function saveTemplate(name, fields) {
+async function saveTemplate(name, fields, org = '') {
   const clean = fields.map(({ skip, ...f }) => ({ ...f, group: undefined }));
-  const t = { id: 'cus-' + uid(), name, custom: true, desc: 'Fiche personnalisée', fields: clean };
+  const t = { id: 'cus-' + uid(), name, custom: true, desc: org ? `Fiche ${org}` : 'Fiche personnalisée', org: org.trim() || undefined, fields: clean };
   await db.put('templates', t);
   return t;
+}
+
+// ---------- Établissements (hôpitaux, instituts) : un jeu de fiches par établissement ----------
+// Pas de registre à part : la liste se déduit des fiches enregistrées, elle s'enrichit au fil de l'eau.
+const orgsOf = tpls => [...new Set(tpls.map(t => t.org).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+const LAST_ORG = 'last-org';
+const lastOrg = () => { try { return localStorage.getItem(LAST_ORG) || ''; } catch { return ''; } };
+const rememberOrg = o => { try { localStorage.setItem(LAST_ORG, o || ''); } catch { /* stockage indisponible */ } };
+
+// Champ « Établissement » avec suggestions des établissements déjà connus
+function orgField(tpls, value = lastOrg()) {
+  const listId = 'orgs-' + uid();
+  const input = h('input', { type: 'text', list: listId, value, placeholder: 'ex : CH de Pontoise, Institut Curie…', 'aria-label': 'Établissement' });
+  const dl = h('datalist', { id: listId }, orgsOf(tpls).map(o => h('option', { value: o })));
+  return { input, node: h('label', {}, 'Établissement / institut (facultatif)', input, dl) };
+}
+
+// Liste déroulante de fiches rangées par établissement
+function templateSelect(tpls, selectedId, attrs = {}) {
+  const groups = [['Modèles standards', tpls.filter(t => !t.custom)]];
+  for (const o of orgsOf(tpls)) groups.push([o, tpls.filter(t => t.custom && t.org === o)]);
+  groups.push(['Mes fiches (sans établissement)', tpls.filter(t => t.custom && !t.org)]);
+  return h('select', attrs, groups.filter(([, l]) => l.length).map(([label, l]) =>
+    h('optgroup', { label }, l.map(t => h('option', { value: t.id, selected: t.id === selectedId }, t.name)))));
 }
 
 // ---------- Routeur ----------
@@ -175,11 +199,21 @@ async function newPatientView() {
   const tpls = await allTemplates();
   const name = h('input', { type: 'text', placeholder: 'Nom ou initiales (ex : Léa M.)', 'aria-label': 'Nom', required: true });
   const service = h('input', { type: 'text', placeholder: 'Service / chambre (facultatif)', 'aria-label': 'Service' });
-  const sel = h('select', { 'aria-label': 'Modèle de fiche' },
-    h('optgroup', { label: 'Modèles standards' }, BUILTIN_TEMPLATES.map(t => h('option', { value: t.id }, t.name))),
-    tpls.some(t => t.custom) ? h('optgroup', { label: 'Mes fiches' }, tpls.filter(t => t.custom).map(t => h('option', { value: t.id }, t.name))) : null);
-  const desc = h('small', { class: 'hint' }, BUILTIN_TEMPLATES[0].desc);
+  const orgSel = h('select', { 'aria-label': 'Établissement' },
+    h('option', { value: '' }, 'Tous les modèles'),
+    h('option', { value: '\u0000std' }, 'Modèles standards'),
+    orgsOf(tpls).map(o => h('option', { value: o, selected: o === lastOrg() }, o)));
+  const sel = h('select', { 'aria-label': 'Modèle de fiche' });
+  const desc = h('small', { class: 'hint' });
+  const fill = () => {
+    const o = orgSel.value;
+    const list = !o ? tpls : o === '\u0000std' ? tpls.filter(t => !t.custom) : tpls.filter(t => t.org === o);
+    sel.replaceChildren(...list.map(t => h('option', { value: t.id }, t.name)));
+    desc.textContent = list[0]?.desc || '';
+  };
+  orgSel.addEventListener('change', () => { fill(); if (orgSel.value && orgSel.value !== '\u0000std') rememberOrg(orgSel.value); });
   sel.addEventListener('change', () => { desc.textContent = tpls.find(t => t.id === sel.value)?.desc || ''; });
+  fill();
   const form = h('form', { class: 'stack', onsubmit: async e => {
     e.preventDefault();
     if (!name.value.trim()) return name.focus();
@@ -187,7 +221,9 @@ async function newPatientView() {
     await db.put('patients', p);
     location.hash = `#/p/${p.id}`;
   } },
-    h('label', {}, 'Patient', name), h('label', {}, 'Service', service), h('label', {}, 'Fiche de suivi', sel), desc,
+    h('label', {}, 'Patient', name), h('label', {}, 'Service', service),
+    orgsOf(tpls).length ? h('label', {}, 'Établissement / institut', orgSel) : null,
+    h('label', {}, 'Fiche de suivi', sel), desc,
     h('button', { class: 'btn big', type: 'submit' }, 'Créer'),
     h('div', { class: 'row' }, link('#/compose', 'Composer une fiche', 'btn secondary'), link('#/scan', 'Scanner une fiche', 'btn secondary')));
   put(form);
@@ -202,8 +238,7 @@ async function patientView(pid) {
   const pend = p.share && canWrite && !sync.can(p, 'ask') ? (await sync.thread(p)).pending : null;
   const fields = templateFields(t);
   const recent = entries.sort((a, b) => b.ts - a.ts).slice(0, 5);
-  const sel = h('select', { 'aria-label': 'Fiche de suivi', onchange: async e => { p.templateId = e.target.value; await db.put('patients', p); toast('Fiche changée'); render(); } },
-    tpls.map(x => h('option', { value: x.id, selected: x.id === t.id }, x.name)));
+  const sel = templateSelect(tpls, t.id, { 'aria-label': 'Fiche de suivi', onchange: async e => { p.templateId = e.target.value; await db.put('patients', p); toast('Fiche changée'); render(); } });
   put(
     p.service ? h('p', { class: 'lead' }, p.service) : null,
     p.share ? h('a', { class: 'banner info', href: `#/p/${pid}/sync` }, h('strong', {}, `👥 Dossier partagé · ${sync.ROLES[p.share.role].label}`), h('span', {}, p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}. Touchez pour synchroniser / gérer.` : p.share.folder ? 'Touchez pour synchroniser.' : 'Échange par QR code, sans réseau. Touchez pour gérer.')) : null,
@@ -340,16 +375,30 @@ async function templatesView() {
   const tpls = await allTemplates();
   const card = t => h('div', { class: 'card' }, h('strong', {}, t.name), h('span', {}, t.desc || ''),
     h('small', {}, templateFields(t).map(f => f.label).join(' · ')),
-    t.custom ? h('button', { class: 'btn danger small', onclick: () => confirmDo(`Supprimer la fiche « ${t.name} » ?`, async () => { await db.del('templates', t.id); render(); }) }, 'Supprimer') : null);
+    h('div', { class: 'row' },
+      h('button', { class: 'btn secondary small', onclick: async () => {
+        const o = prompt(t.custom ? 'Rattacher cette fiche à quel établissement ? (vide = aucun)' : 'Copier ce modèle pour quel établissement ? (ex : CH de Pontoise)', t.org || lastOrg());
+        if (o == null) return;
+        if (t.custom) { t.org = o.trim() || undefined; if (t.org) t.desc = `Fiche ${t.org}`; await db.put('templates', t); toast('Établissement mis à jour ✓'); }
+        else { if (!o.trim()) return toast('Indiquez un établissement'); await saveTemplate(t.name, templateFields(t).map(f => ({ ...f })), o.trim()); rememberOrg(o.trim()); toast('Copie créée ✓'); }
+        render();
+      } }, t.custom ? '🏥 Établissement' : '🏥 Copier pour un établissement'),
+      t.custom ? h('button', { class: 'btn danger small', onclick: () => confirmDo(`Supprimer la fiche « ${t.name} » ?`, async () => { await db.del('templates', t.id); render(); }) }, 'Supprimer') : null));
+  const sections = [];
+  for (const o of orgsOf(tpls)) sections.push(h('h2', {}, `🏥 ${o}`), h('div', { class: 'cards' }, tpls.filter(t => t.custom && t.org === o).map(card)));
+  const loose = tpls.filter(t => t.custom && !t.org);
   put(h('div', { class: 'row' }, link('#/compose', '＋ Composer une fiche', 'btn'), link('#/scan', '📷 Scanner une fiche', 'btn secondary')),
-    h('h2', {}, 'Standards'), h('div', { class: 'cards' }, tpls.filter(t => !t.custom).map(card)),
-    h('h2', {}, 'Mes fiches'), h('div', { class: 'cards' }, tpls.some(t => t.custom) ? tpls.filter(t => t.custom).map(card) : h('p', { class: 'empty' }, 'Aucune fiche personnalisée.')));
+    h('p', { class: 'hint' }, 'Un jeu de fiches par hôpital ou institut : les équipes retrouvent leur fiche habituelle. Ajoutez un établissement en composant, en scannant ou en copiant un modèle standard.'),
+    sections,
+    loose.length ? [h('h2', {}, 'Mes fiches (sans établissement)'), h('div', { class: 'cards' }, loose.map(card))] : null,
+    h('h2', {}, 'Modèles standards'), h('div', { class: 'cards' }, tpls.filter(t => !t.custom).map(card)));
 }
 
 async function composeView() {
   setHeader('Composer une fiche', true);
   const fields = [];
   const name = h('input', { type: 'text', placeholder: 'Nom de la fiche (ex : Chirurgie – bloc 2)', 'aria-label': 'Nom de la fiche' });
+  const org = orgField(await allTemplates());
   const editor = fieldsEditor(fields);
   const mods = h('div', { class: 'opts' }, Object.entries(MODULES).map(([id, m]) => h('button', { type: 'button', class: 'opt', onclick: e => {
     const on = e.currentTarget.classList.toggle('on');
@@ -358,11 +407,11 @@ async function composeView() {
     else for (let i = fields.length - 1; i >= 0; i--) if (fields[i].group === m.name && names.includes(fields[i].key)) fields.splice(i, 1);
     editor.refresh();
   } }, `${m.icon} ${m.name}`)));
-  put(h('label', {}, 'Nom', name), h('h2', {}, '1. Choisir des modules'), mods, h('h2', {}, '2. Ajuster les champs'), editor,
+  put(h('label', {}, 'Nom', name), org.node, h('h2', {}, '1. Choisir des modules'), mods, h('h2', {}, '2. Ajuster les champs'), editor,
     h('button', { class: 'btn big', onclick: async () => {
       if (!name.value.trim()) return name.focus();
       if (!fields.length) return toast('Ajoutez au moins un champ');
-      await saveTemplate(name.value.trim(), fields); toast('Fiche enregistrée ✓'); location.hash = '#/templates';
+      await saveTemplate(name.value.trim(), fields, org.input.value); rememberOrg(org.input.value.trim()); toast('Fiche enregistrée ✓'); location.hash = '#/templates';
     } }, 'Enregistrer la fiche'));
 }
 
@@ -463,17 +512,18 @@ async function scanView() {
     step4();
   };
 
-  const step4 = () => {
+  const step4 = async () => {
     clear(app);
+    const org = orgField(await allTemplates());
     const name = h('input', { type: 'text', placeholder: 'Nom de la fiche (ex : Service X – surveillance)', value: S.name, 'aria-label': 'Nom de la fiche', oninput: e => { S.name = e.target.value; } });
     put(
       h('p', { class: 'lead' }, 'Vérifiez les colonnes lues : corrigez l’intitulé et le type de saisie. La date/heure est ajoutée automatiquement.'),
-      h('label', {}, 'Nom de la fiche', name),
+      h('label', {}, 'Nom de la fiche', name), org.node,
       fieldsEditor(S.fields),
       h('button', { class: 'btn big', onclick: async () => {
         if (!S.name.trim()) return name.focus();
         if (!S.fields.length) return toast('Ajoutez au moins une colonne');
-        const t = await saveTemplate(S.name.trim(), S.fields);
+        const t = await saveTemplate(S.name.trim(), S.fields, org.input.value); rememberOrg(org.input.value.trim());
         await scan.stopOcr();
         toast('Fiche créée ✓');
         location.hash = '#/new-patient';
@@ -1118,7 +1168,7 @@ async function syncView(pid) {
       if (!lock.ok) throw new Error(`${lock.by} modifie la fiche commune en ce moment (jusqu’à ${new Date(lock.until).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}). Réessayez plus tard.`);
       const tpls = await allTemplates();
       const name = h('input', { type: 'text', value: p.name, 'aria-label': 'Nom' }), service = h('input', { type: 'text', value: p.service || '', 'aria-label': 'Service' });
-      const sel = h('select', { 'aria-label': 'Fiche de suivi' }, tpls.map(t => h('option', { value: t.id, selected: t.id === p.templateId }, t.name)));
+      const sel = templateSelect(tpls, p.templateId, { 'aria-label': 'Fiche de suivi' });
       const ok = h('button', { class: 'btn', type: 'button', onclick: () => busy(ok, async () => { await sync.commitCommon(p, { name: name.value.trim() || p.name, service: service.value.trim(), templateId: sel.value }); toast('Fiche commune enregistrée ✓'); render(); }) }, 'Enregistrer pour tous');
       const cancel = h('button', { class: 'btn secondary', type: 'button', onclick: () => busy(cancel, async () => { await sync.releaseLock(p); render(); }) }, 'Annuler (libérer le verrou)');
       common.replaceChildren(h('p', { class: 'hint' }, '🔒 Vous avez le verrou (5 min) : les autres ne peuvent pas modifier cette fiche pendant ce temps.'), h('label', {}, 'Patient', name), h('label', {}, 'Service', service), h('label', {}, 'Fiche de suivi', sel), ok, cancel);

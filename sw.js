@@ -1,5 +1,5 @@
 // Service worker : offline-first. Coque applicative pré-cachée ; fichiers OCR mis en cache à la première utilisation.
-const VERSION = 'v19';
+const VERSION = 'v20';
 const SHELL = `shell-${VERSION}`;
 const HEAVY = `vendor-${VERSION}`;
 const FILES = [
