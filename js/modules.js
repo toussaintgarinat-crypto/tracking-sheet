@@ -62,7 +62,7 @@ export const MODULES = {
       { key: 'cote', short: 'Côté', label: 'Côté de tétée', type: 'choice', options: ['Gauche', 'Droit', 'Les deux'] },
       { key: 'bib', short: 'Biberon', label: 'Biberon', type: 'number', unit: 'ml', min: 0, max: 300, step: 5, def: 60, quick: [20, 30, 45, 60, 90, 120] },
       { key: 'mict', short: 'Mict.', label: 'Miction bébé', type: 'choice', options: OUI_NON },
-      { key: 'selbb', short: 'Selles bb', label: 'Selles bébé', type: 'choice', options: ['Aucune', 'Méconium', 'Jaune', 'Verdâtre', 'Liquide'] },
+      { key: 'selbb', short: 'Selles bb', label: 'Selles bébé', type: 'multi', exclusive: 'Aucune', options: ['Aucune', 'Méconium', 'Jaune', 'Verdâtre', 'Liquide'], hint: 'Plusieurs choix possibles' },
       { key: 'poidsbb', short: 'Poids bb', label: 'Poids bébé', type: 'number', unit: 'g', min: 500, max: 6000, step: 10, def: 3200 },
       { key: 'lochies', short: 'Lochies', label: 'Maman : lochies', type: 'choice', options: ['Rares', 'Normales', 'Abondantes', 'Caillots'] },
       { key: 'involut', short: 'Involut.', label: 'Maman : involution utérine', type: 'choice', options: ['Normale', 'Lente', 'À surveiller'] },

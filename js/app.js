@@ -97,6 +97,7 @@ const routes = [
   [/^p\/([^/]+)\/acces$/, accesView],
   [/^p\/([^/]+)\/qrsync$/, qrSyncView],
   [/^p\/([^/]+)\/seuils$/, seuilsView],
+  [/^p\/([^/]+)\/courbe$/, courbeView],
   [/^p\/([^/]+)\/messages$/, messagesView],
   [/^p\/([^/]+)\/sync$/, syncView],
   [/^backup$/, backupView],
@@ -169,7 +170,7 @@ function setHeader(title, back) {
 }
 // Écran « parent » logique : le retour reste dans l'application (jamais hors de l'appli, même après un rechargement)
 function parentOf(path) {
-  if (/^p\/[^/]+\/(new|table|qr|qrsync|acces|sync|messages|seuils)/.test(path)) return path.match(/^p\/[^/]+/)[0];
+  if (/^p\/[^/]+\/(new|table|qr|qrsync|acces|sync|messages|seuils|courbe)/.test(path)) return path.match(/^p\/[^/]+/)[0];
   if (/^urgence\/[^/]+\/carte$/.test(path)) return 'urgence';
   if (/^urgence\/.+/.test(path)) return 'urgence';
   if (/^r\/.+/.test(path)) return '';
@@ -267,14 +268,14 @@ async function patientView(pid) {
     p.share ? h('a', { class: 'banner info', href: `#/p/${pid}/sync` }, h('strong', {}, `👥 Dossier partagé · ${sync.ROLES[p.share.role].label}`), h('span', {}, p.share.syncedAt ? `Synchronisé le ${fmtDateLong(p.share.syncedAt)}. Touchez pour synchroniser / gérer.` : p.share.folder ? 'Touchez pour synchroniser.' : 'Échange par QR code, sans réseau. Touchez pour gérer.')) : null,
     pend ? h('a', { class: 'banner', href: `#/p/${pid}/messages` }, h('strong', {}, `💬 ${pend.by} demande de vos nouvelles`), h('span', {}, 'Touchez pour répondre en un tap.')) : null,
     canWrite ? link(`#/p/${pid}/new`, '＋ Nouvelle saisie', 'btn big') : h('p', { class: 'hint' }, 'Lecture seule : vous ne pouvez pas ajouter de saisie.'),
-    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary'), p.share ? link(`#/p/${pid}/messages`, '💬 Messages', 'btn secondary') : null, p.share ? link(`#/p/${pid}/qrsync`, '▦ Échanger par QR', 'btn secondary') : null, link(`#/p/${pid}/seuils`, '🔔 Seuils d’alerte', 'btn secondary')),
+    h('div', { class: 'row' }, link(`#/p/${pid}/table`, '📊 Tableau', 'btn secondary'), link(`#/p/${pid}/qr`, '▦ Transmettre au soignant', 'btn secondary'), p.share ? link(`#/p/${pid}/messages`, '💬 Messages', 'btn secondary') : null, p.share ? link(`#/p/${pid}/qrsync`, '▦ Échanger par QR', 'btn secondary') : null, fields.some(f => WEIGHT_KEYS.includes(f.key)) ? link(`#/p/${pid}/courbe`, '📈 Courbe du poids', 'btn secondary') : null, link(`#/p/${pid}/seuils`, '🔔 Seuils d’alerte', 'btn secondary')),
     h('label', {}, 'Fiche de suivi', sel),
     pdfBox(p, t, fields, entries),
     h('h2', {}, 'Dernières saisies'),
     recent.length ? h('ul', { class: 'recent' }, recent.map(e => h('li', {}, h(e._ro ? 'div' : 'a', e._ro ? { class: 'ro' } : { href: `#/p/${pid}/new/${e.id}` },
       h('b', {}, fmtDate(e.ts)), e._ro ? ` · ${e._by} 🔒 ` : ' ✎ ',
       fields.filter(f => e.values[f.key] != null).slice(0, 4).map(f => `${f.short || f.label} ${fmtValue(f, e.values[f.key])}`).join(' · '))))) : h('p', { class: 'empty' }, 'Aucune saisie.'),
-    h('details', { class: 'danger-zone' }, h('summary', {}, 'Sortie d’hospitalisation / purge'),
+    h('details', { class: 'danger-zone' }, h('summary', {}, 'Sortie d’hospitalisation / suppression'),
       h('button', { class: 'btn danger', onclick: () => confirmDo(`Supprimer définitivement ${p.name} et tout son historique (${entries.length} saisie(s)) ?`, async () => { if (p.share) await sync.leaveShare(p, true); else await db.purgePatient(pid); toast('Patient supprimé'); location.hash = '#/'; }) }, 'Supprimer ce patient et son historique')));
 }
 
@@ -966,6 +967,72 @@ async function breaches(p, entries) {
     else if (min != null && v < min) out.push(`${f.short || f.label} ${v} < ${min} (${fmtDate(e.ts)})`);
   }
   return out;
+}
+
+// ---------- Courbe du poids (poids bébé, poids) : SVG local, sans bibliothèque ----------
+const WEIGHT_KEYS = ['poidsbb', 'poids'];
+const fmtNum = (v, d = 0) => Number(v).toLocaleString('fr-FR', { maximumFractionDigits: d });
+const fmtSigned = (v, d = 0) => (v > 0 ? '+' : v < 0 ? '−' : '') + fmtNum(Math.abs(v), d);
+async function courbeView(pid) {
+  const p = await db.get('patients', pid);
+  if (!p) { location.hash = '#/'; return; }
+  setHeader(p.name + ' · Courbe du poids', true);
+  const fields = templateFields(await getTemplate(p.templateId)).filter(f => WEIGHT_KEYS.includes(f.key));
+  const all = (await db.allEntriesOf(pid)).sort((a, b) => a.ts - b.ts);
+  if (!fields.length) return put(h('p', { class: 'empty' }, 'Cette fiche n’a pas de champ poids.'));
+  const body = h('div', { class: 'stack' });
+  const draw = f => {
+    const pts = all.filter(e => e.values[f.key] != null && e.values[f.key] !== '' && !isNaN(+e.values[f.key])).map(e => ({ ts: e.ts, v: +e.values[f.key] }));
+    const unit = f.unit || '', dec = unit === 'kg' ? 1 : 0;
+    const title = h('h2', {}, `${f.label} (${unit})`);
+    if (!pts.length) return body.replaceChildren(title, h('p', { class: 'empty' }, 'Aucun poids saisi pour l’instant.'));
+    const first = pts[0], last = pts[pts.length - 1];
+    const gap = last.v - first.v, pct = first.v ? gap / first.v * 100 : 0;
+    const summary = h('p', { class: 'lead' }, pts.length > 1
+      ? `Premier poids ${fmtNum(first.v, dec)} ${unit} → dernier ${fmtNum(last.v, dec)} ${unit} : ${fmtSigned(gap, dec)} ${unit} (${fmtSigned(pct, 1)} %).`
+      : `Un seul poids saisi : ${fmtNum(first.v, dec)} ${unit}. Ajoutez-en un second pour voir la courbe.`);
+    // géométrie
+    const W = 360, H = 240, L = 46, R = 22, T = 18, B = 34;
+    const t0 = first.ts, t1 = last.ts, span = Math.max(t1 - t0, 1);
+    let lo = Math.min(...pts.map(x => x.v)), hi = Math.max(...pts.map(x => x.v));
+    const pad = Math.max((hi - lo) * 0.15, unit === 'kg' ? 0.5 : 20); lo -= pad; hi += pad;
+    // repères « ronds » (1, 2 ou 5 × 10ⁿ) : l'axe tombe sur 3 000, 3 100… plutôt que sur 3 286
+    const raw = (hi - lo) / 3, mag = 10 ** Math.floor(Math.log10(raw)), step = [1, 2, 5, 10].map(m => m * mag).find(v => v >= raw);
+    lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+    const X = ts => pts.length > 1 ? L + (ts - t0) / span * (W - L - R) : (L + W - R) / 2;
+    const Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+    const ticks = Array.from({ length: Math.round((hi - lo) / step) + 1 }, (_, i) => lo + i * step);
+    const dShort = ts => new Date(ts).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) + (span < 2 * 864e5 ? ' ' + new Date(ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '');
+    const line = pts.map(x => `${X(x.ts).toFixed(1)},${Y(x.v).toFixed(1)}`).join(' ');
+    const svg = h('div', { class: 'chart' });
+    svg.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Courbe : ${f.label}, ${pts.length} mesure(s), de ${fmtNum(first.v, dec)} à ${fmtNum(last.v, dec)} ${unit}">
+      ${ticks.map(v => `<line class="c-grid" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="c-txt" x="${L - 6}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end">${fmtNum(v, dec)}</text>`).join('')}
+      <text class="c-txt" x="${L}" y="${H - 10}" text-anchor="start">${dShort(t0)}</text>
+      ${pts.length > 1 ? `<text class="c-txt" x="${W - R}" y="${H - 10}" text-anchor="end">${dShort(t1)}</text>` : ''}
+      ${pts.length > 1 ? `<polyline class="c-line" points="${line}"/>` : ''}
+      <line class="c-cross" id="cx" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>
+      ${pts.map((x, i) => `<circle class="c-dot" cx="${X(x.ts).toFixed(1)}" cy="${Y(x.v).toFixed(1)}" r="4.5"/><circle class="c-hit" data-i="${i}" cx="${X(x.ts).toFixed(1)}" cy="${Y(x.v).toFixed(1)}" r="16"/>`).join('')}
+      <text class="c-val" x="${X(first.ts).toFixed(1)}" y="${(Y(first.v) - 9).toFixed(1)}" text-anchor="${pts.length > 1 ? 'start' : 'middle'}">${fmtNum(first.v, dec)}</text>
+      ${pts.length > 1 ? `<text class="c-val" x="${X(last.ts).toFixed(1)}" y="${(Y(last.v) - 9).toFixed(1)}" text-anchor="end">${fmtNum(last.v, dec)}</text>` : ''}
+    </svg>`;
+    const read = h('p', { class: 'hint chart-read', 'aria-live': 'polite' }, 'Touchez un point pour voir la date et le poids.');
+    const show = i => {
+      const x = pts[i], cx = svg.querySelector('#cx');
+      cx.setAttribute('x1', X(x.ts)); cx.setAttribute('x2', X(x.ts)); cx.setAttribute('visibility', 'visible');
+      read.textContent = `${fmtDate(x.ts)} : ${fmtNum(x.v, dec)} ${unit}` + (i ? ` · ${fmtSigned(x.v - first.v, dec)} ${unit} depuis le premier poids (${fmtSigned((x.v - first.v) / first.v * 100, 1)} %)` : ' · premier poids');
+    };
+    svg.querySelectorAll('.c-hit').forEach(c => { const go = () => show(+c.dataset.i); c.addEventListener('pointerenter', go); c.addEventListener('click', go); });
+    // vue tableau (même données, accessible)
+    const table = h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, `Poids (${unit})`), h('th', {}, 'Écart'))),
+      h('tbody', {}, pts.map((x, i) => h('tr', {}, h('td', {}, fmtDate(x.ts)), h('td', {}, fmtNum(x.v, dec)), h('td', {}, i ? `${fmtSigned(x.v - first.v, dec)} (${fmtSigned((x.v - first.v) / first.v * 100, 1)} %)` : '—')))));
+    body.replaceChildren(title, summary, svg, read, h('details', {}, h('summary', {}, 'Voir les valeurs'), table));
+  };
+  if (fields.length > 1) {
+    const sel = h('select', { 'aria-label': 'Poids à afficher', onchange: e => draw(fields.find(f => f.key === e.target.value)) }, fields.map(f => h('option', { value: f.key }, f.label)));
+    put(h('label', {}, 'Courbe de', sel), body);
+  } else put(body);
+  draw(fields[0]);
+  put(h('p', { class: 'hint' }, 'Courbe construite à partir des poids saisis. Aide au suivi : ne remplace pas la courbe du carnet de santé ni l’avis de l’équipe soignante.'));
 }
 
 async function seuilsView(pid) {

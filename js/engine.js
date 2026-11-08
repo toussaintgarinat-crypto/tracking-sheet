@@ -59,13 +59,18 @@ function choiceInput(f, value, set) {
 }
 
 function multiInput(f, value, set) {
-  const cur = new Set(Array.isArray(value) ? value : []);
+  // anciennes saisies (choix unique) : une chaîne devient une liste d'un élément
+  const cur = new Set(Array.isArray(value) ? value : value ? [value] : []);
   const btns = f.options.map(o => h('button', {
-    type: 'button', class: 'opt' + (cur.has(o) ? ' on' : ''), 'aria-pressed': cur.has(o),
-    onclick: e => {
-      cur.has(o) ? cur.delete(o) : cur.add(o);
-      e.currentTarget.classList.toggle('on', cur.has(o));
-      e.currentTarget.setAttribute('aria-pressed', cur.has(o));
+    type: 'button', 'data-opt': o, class: 'opt' + (cur.has(o) ? ' on' : ''), 'aria-pressed': String(cur.has(o)),
+    onclick: () => {
+      if (cur.has(o)) cur.delete(o);
+      else {
+        // « Aucune » (f.exclusive) exclut les autres choix, et inversement
+        if (f.exclusive) { if (o === f.exclusive) cur.clear(); else cur.delete(f.exclusive); }
+        cur.add(o);
+      }
+      for (const b of btns) { const on = cur.has(b.dataset.opt); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); }
       set(cur.size ? [...cur] : null);
     },
   }, o));

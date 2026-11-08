@@ -1,9 +1,18 @@
 // Numéro de version affiché dans l'application + notes « Nouveautés » pour les utilisateurs.
 // À chaque publication : ajouter une entrée EN TÊTE de NEWS, mettre VERSION à jour,
 // et incrémenter VERSION dans sw.js (pour que les appareils récupèrent la nouvelle version).
-export const VERSION = '1.5';
+export const VERSION = '1.6';
 
 export const NEWS = [
+  {
+    v: '1.6', date: '2026-11-08', title: 'Maternité : selles multiples et courbe de poids',
+    items: [
+      '👶 Selles bébé : on peut maintenant choisir plusieurs types sur une même saisie (« Aucune » s’efface dès qu’on en choisit un autre). Les anciennes saisies restent lisibles.',
+      '📈 Courbe du poids : sur la fiche d’un patient, le bouton « Courbe du poids » trace l’évolution des poids saisis (poids du bébé en grammes), avec l’écart depuis le premier poids, un point à toucher pour voir le détail et un tableau des valeurs.',
+      '🗑 Sortie d’hospitalisation : le libellé « purge » devient « suppression », plus clair.',
+    ],
+    tip: 'La courbe apparaît dès qu’un poids a été saisi sur une fiche qui contient « Poids bébé » (ex. Maternité / Néonatologie).',
+  },
   {
     v: '1.5', date: '2026-11-08', title: 'Correctif : plus d’écran vide au lancement',
     items: [

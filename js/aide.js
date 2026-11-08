@@ -89,7 +89,7 @@ export const SECTIONS = [
   { id: 'securite', icon: '🔒', title: 'Confidentialité et sécurité', items: [
     'Rien n’est envoyé à un serveur, sauf les dossiers que vous partagez. Avec une phrase secrète, les fichiers Drive et les codes QR sont chiffrés de bout en bout (AES-256) : Google ne voit que des fichiers illisibles.',
     'Sans phrase secrète, les fichiers partagés sont lisibles par quiconque a accès au dossier Drive. Choisissez-en une pour toute donnée de santé, et transmettez-la par un autre canal que Drive.',
-    'Purge : fiche du patient → « Sortie d’hospitalisation / purge », ou Menu → « Confidentialité & purge ».',
+    'Suppression : fiche du patient → « Sortie d’hospitalisation / suppression », ou Menu → « Confidentialité & purge ».',
     'Application d’aide à la saisie : elle ne remplace pas le dossier patient officiel.',
   ] },
   { id: 'depannage', icon: '🛠️', title: 'Dépannage', items: [

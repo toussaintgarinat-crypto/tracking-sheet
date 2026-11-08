@@ -155,6 +155,13 @@ urgence) : seul l'essentiel y figure (limite 900 octets). Stockée localement, i
 Un QR ne se scanne pas depuis le même écran : les écrans d'échange et le QR d'accès proposent **🔗 Lien à copier** (`#/lien/<codes>`). Le lien contient
 les mêmes codes que les QR (chiffrés si phrase secrète) ; l'ouvrir lance la même lecture que le scan. Limite : 7 000 caractères (sinon période plus courte ou texte).
 
+## Maternité : selles multiples et courbe du poids
+
+- **Selles bébé** accepte plusieurs choix par saisie (« Aucune » s'efface quand on en choisit un autre, et inversement) ; les anciennes saisies à choix unique restent lisibles.
+  Un champ de fiche peut être `type: 'multi'` avec `exclusive: '<option>'`.
+- **📈 Courbe du poids** (`#/p/<id>/courbe`) : sur toute fiche contenant `poidsbb` (poids bébé, g) ou `poids` (kg). Courbe SVG locale (clair/sombre), premier et dernier poids affichés,
+  point à toucher pour la date, la valeur et l'écart depuis le premier poids, tableau des valeurs. Aide au suivi : ne remplace pas la courbe du carnet de santé.
+
 ## Version et nouveautés
 
 Le numéro de version (`v1.1`) s'affiche en haut à droite ; le toucher ouvre la page **✨ Nouveautés** (`js/version.js`), aussi accessible depuis le menu.

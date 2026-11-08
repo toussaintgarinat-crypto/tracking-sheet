@@ -194,3 +194,15 @@ pre.raw.urg { font-size: 1.05rem; white-space: pre-wrap; background: var(--card)
 
 .card.demo { gap: .8rem; } .card.demo .res { font-size: .9rem; color: var(--muted); } .demoqr { max-width: 240px; background: #fff; border-radius: 8px; padding: 6px; line-height: 0; } .demoqr svg { width: 100%; height: auto; }
 @media print { .card.demo .btn { display: none !important; } }
+
+/* Courbe du poids */
+.chart svg { width: 100%; height: auto; display: block; touch-action: manipulation; }
+.c-grid { stroke: var(--line); stroke-width: 1; }
+.c-txt { fill: var(--muted); font-size: 10px; }
+.c-val { fill: var(--fg); font-size: 11px; font-weight: 600; }
+.c-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.c-dot { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
+.c-cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.c-hit { fill: transparent; cursor: pointer; }
+.chart-read { min-height: 2.6em; }
+.tbl { width: 100%; border-collapse: collapse; font-size: .9rem; } .tbl th, .tbl td { text-align: left; padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
