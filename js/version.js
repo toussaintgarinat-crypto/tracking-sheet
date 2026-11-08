@@ -1,9 +1,16 @@
 // Numéro de version affiché dans l'application + notes « Nouveautés » pour les utilisateurs.
 // À chaque publication : ajouter une entrée EN TÊTE de NEWS, mettre VERSION à jour,
 // et incrémenter VERSION dans sw.js (pour que les appareils récupèrent la nouvelle version).
-export const VERSION = '1.4';
+export const VERSION = '1.5';
 
 export const NEWS = [
+  {
+    v: '1.5', date: '2026-11-08', title: 'Correctif : plus d’écran vide au lancement',
+    items: [
+      '🛠 Sur certains téléphones, l’application pouvait rester sur un écran vide au lancement (une ancienne version ouverte dans un autre onglet bloquait les données). Elle affiche désormais un message clair avec un bouton « Réessayer », au lieu de rester muette.',
+      '🔒 Vos données ne sont jamais effacées par ce problème.',
+    ],
+  },
   {
     v: '1.4', date: '2026-11-07', title: 'Une recherche d’établissement plus tolérante',
     items: [

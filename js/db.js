@@ -5,10 +5,22 @@ let dbp;
 // repère « il y a des changements non sauvegardés » (rappel de sauvegarde)
 const touch = () => { try { localStorage.setItem('lastChange', String(Date.now())); } catch { /* ignoré */ } };
 
+// Ouverture robuste : si un autre onglet garde une ancienne version de la base ouverte, l'ouverture peut rester bloquée sans erreur.
+// → délai d'attente avec message explicite (le bouton « Réessayer » relance l'ouverture) ; et cette version libère la base
+// dès qu'une version plus récente la demande, pour ne jamais bloquer les prochaines mises à jour.
+const OPEN_TIMEOUT = 6000;
 function open() {
   if (dbp) return dbp;
   dbp = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    let done = false, blocked = false, timer;
+    const fail = err => { if (done) return; done = true; clearTimeout(timer); dbp = null; reject(err); };
+    timer = setTimeout(() => fail(Object.assign(new Error(blocked
+      ? 'La base de données est bloquée par un autre onglet de l’application resté ouvert (ancienne version). Fermez les autres onglets de l’application, puis touchez « Réessayer ».'
+      : 'La base de données de l’appareil ne répond pas. Fermez les autres onglets de l’application, puis touchez « Réessayer ». Si cela persiste, redémarrez le navigateur.'), { code: 'db-timeout' })), OPEN_TIMEOUT);
+    let req;
+    try { req = indexedDB.open(DB_NAME, DB_VERSION); }
+    catch (err) { return fail(Object.assign(new Error('Le stockage local est indisponible dans ce navigateur (navigation privée ou stockage bloqué).'), { code: 'db-unavailable', cause: err })); }
+    req.onblocked = () => { blocked = true; };
     req.onupgradeneeded = e => {
       const db = req.result;
       if (e.oldVersion < 1) {
@@ -24,8 +36,14 @@ function open() {
         rm.createIndex('patientId', 'patientId');
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const d = req.result;
+      if (done) { d.close(); return; } // arrivée après le délai : on libère, un « Réessayer » rouvrira proprement
+      done = true; clearTimeout(timer);
+      d.onversionchange = () => { d.close(); dbp = null; };
+      resolve(d);
+    };
+    req.onerror = () => fail(req.error || new Error('Ouverture de la base impossible'));
   });
   return dbp;
 }

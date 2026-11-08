@@ -154,7 +154,7 @@ async function render() {
   for (const [re, fn] of routes) {
     const m = path.match(re);
     if (m) {
-      try { await fn(...m.slice(1)); } catch (err) { console.error(err); put(h('p', { class: 'error' }, 'Erreur : ' + err.message)); }
+      try { await fn(...m.slice(1)); } catch (err) { console.error(err); put(h('p', { class: 'error' }, 'Erreur : ' + err.message), String(err.code || '').startsWith('db-') ? h('button', { class: 'btn', type: 'button', onclick: () => render() }, 'Réessayer') : null); }
       // sur tous les écrans secondaires : retour d'un niveau + retour au menu principal (sauf scanner caméra en cours)
       if (path) put(h('div', { class: 'row navbar' }, h('a', { class: 'btn secondary', href: '#/' + parentOf(path) }, '‹ Retour'), link('#/', '🏠 Menu principal', 'btn secondary')));
       return;
